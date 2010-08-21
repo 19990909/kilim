@@ -129,7 +129,7 @@
 	<exclude name="junit.jar" />
       </zipgroupfileset>
       <exclude name="kilim/test/**" />
-      <exclude name="kilim/examples/**" />
+  <!--    <exclude name="kilim/examples/**" /> -->
       <exclude name="kilim/bench/**" />
       <manifest>
 	<attribute name="Main-Class" value="kilim.tools.Weaver"/>

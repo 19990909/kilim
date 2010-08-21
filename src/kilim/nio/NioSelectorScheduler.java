@@ -83,6 +83,7 @@ public class NioSelectorScheduler extends Scheduler {
         result.start();
         Task t = new RegistrationTask(result.registrationMbx, sel);
         t.setScheduler(this);
+        t.setReactor(result);
         t.start();
         return result;
     }
