@@ -88,6 +88,47 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
         }
     }
     
+    /**
+     * Read any bytes into buffer if there's space. Otherwise, allocate a bigger 
+     * buffer that'll accomodate the earlier contents and more bytes. 
+     * @param readBuffer
+     * @return
+     * @throws IOException
+     * @throws Pausable
+     */
+    public ByteBuffer read(ByteBuffer readBuffer) throws IOException, Pausable {
+        if (!readBuffer.hasRemaining() && readBuffer.capacity() < ByteBufferUtils.MAX_READ_BUFFER_SIZE) {
+            readBuffer = ByteBufferUtils.increaseBufferCapatity(readBuffer);
+        }
+        SocketChannel ch = dataChannel();
+        if (!ch.isOpen()) {
+            throw new EOFException();
+        }
+        int yieldCount = 0;
+
+        int n = ch.read(readBuffer);
+        // System.out.println(buf);
+        if (n == -1) {
+            close();
+            throw new EOFException();
+        }
+        if (n == 0) {
+            yieldCount++;
+            if (yieldCount < YIELD_COUNT) {
+                // Avoid registering with the selector because it requires
+                // waking up the selector, context switching
+                // between threads and calling the OS just to register. Just
+                // yield, let other tasks have a go, then
+                // check later. Do this at most YIELD_COUNT times before going
+                // back to the selector.
+                Task.yield();
+            } else {
+                pauseUntilReadble();
+                yieldCount = 0;
+            }
+        }
+        return readBuffer;
+    }
     
 
     /**
@@ -197,6 +238,8 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
         super.get(); // wait on self
     }
 
+    
+    
     /**
      * Write a file to the endpoint using {@link FileChannel#transferTo}
      * 

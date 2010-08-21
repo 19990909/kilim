@@ -16,6 +16,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.concurrent.atomic.AtomicInteger;
 
+
 import kilim.Mailbox;
 import kilim.Pausable;
 import kilim.RingQueue;
@@ -68,7 +69,7 @@ public class NioSelectorScheduler extends Scheduler {
      * @throws IOException
      */
     public NioSelectorScheduler(int workerCount) throws IOException {
-        if(workerCount<=0)
+        if(workerCount<0)
             workerCount=DEFAULT_WORKER_COUNT;
         this.bossThread=newSelectorThread("boss");
         this.workers=new SelectorThread[workerCount];
@@ -81,9 +82,8 @@ public class NioSelectorScheduler extends Scheduler {
         Selector sel=Selector.open();
         SelectorThread result=new SelectorThread(namePostFix, sel, this);
         result.start();
-        Task t = new RegistrationTask(result.registrationMbx, sel);
+        Task t = new RegistrationTask(result.registrationMbx, sel,result);
         t.setScheduler(this);
-        t.setReactor(result);
         t.start();
         return result;
     }
@@ -98,10 +98,11 @@ public class NioSelectorScheduler extends Scheduler {
     @Override
     public void schedule(Task t) {
         SelectorThread reactor=t.getReactor();
-        if(t==null){
+        //Set reactor if absent
+        if(reactor==null){
             synchronized (t) {
                 if((reactor=t.getReactor())==null){
-                    reactor=this.workers[sets.incrementAndGet()%this.workers.length];
+                    reactor = nextReactor();
                     t.setReactor(reactor);
                 }
             }
@@ -110,6 +111,14 @@ public class NioSelectorScheduler extends Scheduler {
         if (Thread.currentThread() != reactor) {
             reactor.sel.wakeup();
         }
+    }
+    private SelectorThread nextReactor() {
+        SelectorThread reactor;
+        if(workers.length>0)
+            reactor=this.workers[sets.incrementAndGet()%this.workers.length];
+        else
+            reactor=this.bossThread;
+        return reactor;
     }
 
     @Override
@@ -227,12 +236,14 @@ public class NioSelectorScheduler extends Scheduler {
         Class<? extends SessionTask> sessionClass;
         ServerSocketChannel          ssc;
         int                          port;
+        NioSelectorScheduler selScheduler;
 
         public ListenTask(int port, NioSelectorScheduler selScheduler, Class<? extends SessionTask> sessionClass)
                 throws IOException {
             this.port = port;
             this.sessionClass = sessionClass;
             this.ssc = ServerSocketChannel.open();
+            this.selScheduler=selScheduler;
             ssc.socket().setReuseAddress(true);
             ssc.socket().bind(new InetSocketAddress(port), LISTEN_BACKLOG); //
             ssc.configureBlocking(false);
@@ -259,7 +270,9 @@ public class NioSelectorScheduler extends Scheduler {
                     ch.configureBlocking(false);
                     SessionTask task = sessionClass.newInstance();
                     try {
-                        EndPoint ep = new EndPoint(this.endpoint.sockEvMbx, ch);
+                        SelectorThread reactor=this.selScheduler.nextReactor();
+                        task.setReactor(reactor);
+                        EndPoint ep = new EndPoint(reactor.registrationMbx, ch);
                         task.setEndPoint(ep);
                         n++;
                         // System.out.println("Num sessions created:" + n);
@@ -278,9 +291,10 @@ public class NioSelectorScheduler extends Scheduler {
         Mailbox<SockEvent> mbx;
         Selector           selector;
 
-        public RegistrationTask(Mailbox<SockEvent> ambx, Selector asel) {
+        public RegistrationTask(Mailbox<SockEvent> ambx, Selector asel,SelectorThread reactor) {
             mbx = ambx;
             selector = asel;
+            setReactor(reactor);
         }
 
         @Override
