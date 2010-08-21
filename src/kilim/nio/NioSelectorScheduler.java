@@ -98,7 +98,7 @@ public class NioSelectorScheduler extends Scheduler {
             throws IOException {
         Task t = new ListenTask(port, this, sockTaskClass);
         t.setScheduler(this);
-        t.preferredResumeThread=this.bossThread;
+        t.preferredResumeThread = this.bossThread;
         t.start();
     }
 
@@ -112,10 +112,15 @@ public class NioSelectorScheduler extends Scheduler {
                 if ((reactor = (SelectorThread) t.preferredResumeThread) == null) {
                     reactor = this.nextReactor();
                     t.preferredResumeThread = reactor;
+                    if (t instanceof SessionTask) {
+                        ((SessionTask) t).getEndPoint().sockEvMbx = reactor.registrationMbx;
+                    }
                 }
             }
         }
+        // add to runnable tasks
         reactor.addRunnableTask(t);
+        // wakeup reactor
         if (Thread.currentThread() != reactor) {
             reactor.sel.wakeup();
         }
@@ -199,7 +204,7 @@ public class NioSelectorScheduler extends Scheduler {
                         }
                         break;
                     }
-                    if (this._scheduler.numRunnables() > 0) {
+                    if (this.hasTasks()) {
                         n = this.sel.selectNow();
                     }
                     else {
