@@ -109,6 +109,7 @@ public class NioSelectorScheduler extends Scheduler {
 
     @Override
     public void schedule(Task t) throws NotPausable {
+
         SelectorThread reactor = (SelectorThread) t.preferredResumeThread;
         // Set reactor if absent
         if (reactor == null) {
@@ -116,6 +117,7 @@ public class NioSelectorScheduler extends Scheduler {
                 if ((reactor = (SelectorThread) t.preferredResumeThread) == null) {
                     reactor = this.nextReactor();
                     t.preferredResumeThread = reactor;
+                    t.setScheduler(this);
                     if (t instanceof SessionTask) {
                         ((SessionTask) t).getEndPoint().sockEvMbx = reactor.registrationMbx;
                     }
@@ -332,6 +334,7 @@ public class NioSelectorScheduler extends Scheduler {
                     ch.socket().setTcpNoDelay(true);
                     ch.configureBlocking(false);
                     SessionTask task = this.sessionClass.newInstance();
+                    task.setScheduler(this.selScheduler);
                     try {
                         SelectorThread reactor = this.selScheduler.nextReactor();
                         EndPoint ep = new EndPoint(reactor.registrationMbx, ch);
