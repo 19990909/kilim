@@ -13,8 +13,6 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import kilim.nio.NioSelectorScheduler;
-
 /**
  * A base class for tasks. A task is a lightweight thread (it contains its 
  * own stack in the form of a fiber). A concrete subclass of Task must
@@ -61,7 +59,7 @@ public abstract class Task implements EventSubscriber {
      * to be pinned to a thread.
      * @see kilim.ReentrantLock
      */
-    volatile WorkerThread    preferredResumeThread;
+    public volatile WorkerThread    preferredResumeThread;
 
     /**
      * @see Task#preferredResumeThread
@@ -85,46 +83,36 @@ public abstract class Task implements EventSubscriber {
 
     public    Object           exitResult = "OK";
     
-    /**
-     * Associated reactor for nio scheduler
-     */
-    protected NioSelectorScheduler.SelectorThread reactor;
 
     // TODO: move into a separate timer service or into the schduler.
     public final static Timer timer = new Timer(true);
 
     public Task() {
-        id = idSource.incrementAndGet();
-        fiber = new Fiber(this);
+        this.id = idSource.incrementAndGet();
+        this.fiber = new Fiber(this);
     }
     
     public int id() {
-        return id;
+        return this.id;
     }
 
     public synchronized Task setScheduler(Scheduler s) {
 //        if (running) {
 //            throw new AssertionError("Attempt to change task's scheduler while it is running");
 //        }
-        scheduler = s;
+        this.scheduler = s;
         return this;
-    }
-    
-    public synchronized NioSelectorScheduler.SelectorThread getReactor() {
-        return reactor;
-    }
-
-    public synchronized void setReactor(NioSelectorScheduler.SelectorThread reactor) {
-        this.reactor = reactor;
     }
 
     public synchronized Scheduler getScheduler() {
-      return scheduler;
+      return this.scheduler;
     }
     
     public void resumeOnScheduler(Scheduler s) throws Pausable {
-        if (scheduler == s) return; 
-        scheduler = s;
+        if (this.scheduler == s) {
+            return;
+        } 
+        this.scheduler = s;
         Task.yield();
     }
 
@@ -135,10 +123,10 @@ public abstract class Task implements EventSubscriber {
      * @return
      */
     public Task start() {
-        if (scheduler == null) {
-            setScheduler(Scheduler.getDefaultScheduler());
+        if (this.scheduler == null) {
+            this.setScheduler(Scheduler.getDefaultScheduler());
         }
-        resume();
+        this.resume();
         return this;
     }
     
@@ -164,37 +152,43 @@ public abstract class Task implements EventSubscriber {
     }
     
     public void onEvent(EventPublisher ep, Event e) {
-        resume();
+        this.resume();
     }
     /**
      * Add itself to scheduler if it is neither already running nor done.
      * @return True if it scheduled itself.
      */
     public boolean resume() {
-        if (scheduler == null) return false;
+        if (this.scheduler == null) {
+            return false;
+        }
         
         boolean doSchedule = false;
         // We don't check pauseReason while resuming (to verify whether
         // it is worth returning to a pause state. The code at the top of stack 
         // will be doing that anyway.
         synchronized(this) {
-            if (done || running) return false;
-            running = doSchedule = true;
+            if (this.done || this.running) {
+                return false;
+            }
+            this.running = doSchedule = true;
         }
         if (doSchedule) {
-            scheduler.schedule(this);
+            this.scheduler.schedule(this);
         }
         return doSchedule;
     }
     
     public void informOnExit(Mailbox<ExitMsg> exit) {
-        if (isDone()) {
-            exit.putnb(new ExitMsg(this, exitResult));
+        if (this.isDone()) {
+            exit.putnb(new ExitMsg(this, this.exitResult));
             return;
         }
         synchronized (this) {
-            if (exitMBs == null) exitMBs = new LinkedList<Mailbox<ExitMsg>>();
-            exitMBs.add(exit);
+            if (this.exitMBs == null) {
+                this.exitMBs = new LinkedList<Mailbox<ExitMsg>>();
+            }
+            this.exitMBs.add(exit);
         }
     }
     
@@ -321,9 +315,13 @@ public abstract class Task implements EventSubscriber {
               // names match. Check if the wm has the exact parameter types as m, plus a fiber.
               Class<?>[] wptypes = wm.getParameterTypes();
               if (wptypes.length != ptypes.length + 1 || 
-                  !(wptypes[wptypes.length-1].getName().equals("kilim.Fiber"))) continue LOOP;
+                  !wptypes[wptypes.length-1].getName().equals("kilim.Fiber")) {
+                continue LOOP;
+            }
               for (int i = 0; i < ptypes.length; i++) {
-                  if (ptypes[i] != wptypes[i]) continue LOOP;
+                  if (ptypes[i] != wptypes[i]) {
+                    continue LOOP;
+                }
               }
               m = wm;
               found = true;
@@ -345,6 +343,7 @@ public abstract class Task implements EventSubscriber {
         // create a temp mailbox, and wait on it.
         final Mailbox<Integer> sleepmb = new Mailbox<Integer>(1); // TODO: will need a better mechanism for monitoring later on.
         timer.schedule(new TimerTask() {
+            @Override
             public void run() {
                 sleepmb.putnb(0);
             }
@@ -397,39 +396,40 @@ public abstract class Task implements EventSubscriber {
         errNotWoven(this);
     }
 
+    @Override
     public String toString() {
-        return "" + id + "(running=" + running + ",pr=" + pauseReason+")";
+        return "" + this.id + "(running=" + this.running + ",pr=" + this.pauseReason+")";
     }
     
     public String dump() {
         synchronized(this) {
-            return "" + id + 
-            "(running=" + running + 
-            ", pr=" + pauseReason +
+            return "" + this.id + 
+            "(running=" + this.running + 
+            ", pr=" + this.pauseReason +
             ")";
         }
     }
 
     public void pinToThread() {
-        numActivePins++;
+        this.numActivePins++;
     }
 
     public void unpinFromThread() {
-        numActivePins--;
+        this.numActivePins--;
     }
 
 
     final protected void setPauseReason(PauseReason pr) {
-        pauseReason = pr;
+        this.pauseReason = pr;
     }
 
     public final PauseReason getPauseReason() {
-        return pauseReason;
+        return this.pauseReason;
     }
 
     
     public synchronized boolean isDone() {
-        return done;
+        return this.done;
     }
     
     /**
@@ -438,54 +438,54 @@ public abstract class Task implements EventSubscriber {
      * of the task.
      */
     public void _runExecute(WorkerThread thread) throws NotPausable {
-        Fiber f = fiber;
+        Fiber f = this.fiber;
         boolean isDone = false; 
         try {
-            currentThread = Thread.currentThread();
-            assert (preferredResumeThread == null || preferredResumeThread == thread) : "Resumed " + id + " in incorrect thread. ";
+            this.currentThread = Thread.currentThread();
+            assert this.preferredResumeThread == null || this.preferredResumeThread == thread : "Resumed " + this.id + " in incorrect thread. ";
             // start execute. fiber is wound to the beginning.
-            execute(f.begin());
+            this.execute(f.begin());
         
             // execute() done. Check fiber if it is pausing and reset it.
-            isDone = f.end() || (pauseReason instanceof TaskDoneReason);
-            assert (pauseReason == null && isDone) || (pauseReason != null && !isDone) : "pauseReason:" + pauseReason + ",isDone =" + isDone;
+            isDone = f.end() || this.pauseReason instanceof TaskDoneReason;
+            assert this.pauseReason == null && isDone || this.pauseReason != null && !isDone : "pauseReason:" + this.pauseReason + ",isDone =" + isDone;
         } catch (Throwable th) {
             th.printStackTrace();
             // Definitely done
-            setPauseReason(new TaskDoneReason(th));
+            this.setPauseReason(new TaskDoneReason(th));
             isDone = true;
         }
 
         if (isDone) {
-            done = true;
+            this.done = true;
             // inform on exit
-            if (numActivePins > 0) {
+            if (this.numActivePins > 0) {
                 throw new AssertionError("Task ended but has active locks");
             }
-            if (exitMBs != null) {
-                if (pauseReason instanceof TaskDoneReason) {
-                    exitResult = ((TaskDoneReason)pauseReason).exitObj;
+            if (this.exitMBs != null) {
+                if (this.pauseReason instanceof TaskDoneReason) {
+                    this.exitResult = ((TaskDoneReason)this.pauseReason).exitObj;
                 }
-                ExitMsg msg = new ExitMsg(this, exitResult);
-                for (Mailbox<ExitMsg> exitMB: exitMBs) {
+                ExitMsg msg = new ExitMsg(this, this.exitResult);
+                for (Mailbox<ExitMsg> exitMB: this.exitMBs) {
                     exitMB.putnb(msg);
                 }
             }
-            preferredResumeThread = null;
+            this.preferredResumeThread = null;
         } else {
             if (thread != null) { // it is null for generators
-                if (numActivePins > 0) {
-                    preferredResumeThread = thread;
+                if (this.numActivePins > 0) {
+                    this.preferredResumeThread = thread;
                 } else {
-                    assert numActivePins == 0: "numActivePins == " + numActivePins;
-                    preferredResumeThread = null;
+                    assert this.numActivePins == 0: "numActivePins == " + this.numActivePins;
+                    this.preferredResumeThread = null;
                 }
             }
             
             PauseReason pr = this.pauseReason;
             synchronized (this) {
-                running = false;
-                currentThread = null;
+                this.running = false;
+                this.currentThread = null;
             }
 
             // The task has been in "running" mode until now, and may have missed
@@ -493,20 +493,20 @@ public abstract class Task implements EventSubscriber {
             // resisted calls to resume(). If the pauseReason is not valid any
             // more, we'll resume. 
             if (!pr.isValid(this)) {
-                resume();
+                this.resume();
             }
         }
     }
         
     public ExitMsg joinb() {
         Mailbox<ExitMsg> mb = new Mailbox<ExitMsg>();
-        informOnExit(mb);
+        this.informOnExit(mb);
         return mb.getb();
     }
     
     public ExitMsg join() throws Pausable {
         Mailbox<ExitMsg> mb = new Mailbox<ExitMsg>();
-        informOnExit(mb);
+        this.informOnExit(mb);
         return mb.get();
     }
 
@@ -517,7 +517,7 @@ public abstract class Task implements EventSubscriber {
 
     @Override
     public int hashCode() {
-        return id;
+        return this.id;
     }
 }
 

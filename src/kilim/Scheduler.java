@@ -102,7 +102,7 @@ public class Scheduler {
      * 
      * @return
      */
-    void loadNextTask(WorkerThread wt) throws ShutdownException {
+    public void loadNextTask(WorkerThread wt) throws ShutdownException {
         while (true) {
             Task t = null;
             WorkerThread prefThread = null;
