@@ -8,6 +8,7 @@ package kilim.nio;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -17,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import kilim.Mailbox;
 import kilim.Pausable;
+import kilim.RingQueue;
 import kilim.Scheduler;
 import kilim.Task;
 import kilim.WorkerThread;
@@ -204,6 +206,7 @@ public class NioSelectorScheduler extends Scheduler {
                         }
                         break;
                     }
+
                     if (this.hasTasks()) {
                         n = this.sel.selectNow();
                     }
@@ -216,28 +219,44 @@ public class NioSelectorScheduler extends Scheduler {
                     ignore.printStackTrace();
                 }
                 if (n > 0) {
-                    Iterator<SelectionKey> it = this.sel.selectedKeys().iterator();
-                    while (it.hasNext()) {
-                        SelectionKey sk = it.next();
-                        it.remove();
-                        Object o = sk.attachment();
-                        sk.interestOps(0);
-                        if (o instanceof SockEvent) {
-                            SockEvent ev = (SockEvent) o;
-                            ev.replyTo.putnb(ev);
-                        }
-                        else if (o instanceof Task) {
-                            Task t = (Task) o;
-                            t.resume();
+                    try {
+                        Iterator<SelectionKey> it = this.sel.selectedKeys().iterator();
+                        while (it.hasNext()) {
+                            SelectionKey sk = it.next();
+                            it.remove();
+                            Object o = sk.attachment();
+                            sk.interestOps(0);
+                            if (o instanceof SockEvent) {
+                                SockEvent ev = (SockEvent) o;
+                                ev.replyTo.putnb(ev);
+                            }
+                            else if (o instanceof Task) {
+                                Task t = (Task) o;
+                                t.resume();
+                            }
                         }
                     }
+                    catch (CancelledKeyException e) {
+                        // ignore
+                    }
+                    catch (Throwable e) {
+                        System.err.println("dispatch event error:" + e.getMessage());
+                        e.printStackTrace();
+                    }
                 }
+                RingQueue<Task> runnableTasks = new RingQueue<Task>(100);
 
-                Task t = null;
-                while ((t = this.getNextTask()) != null) {
-                    this.runningTask = t;
-                    t._runExecute(this);
-                    this.runningTask = null;
+                runnableTasks = this.swapRunnables(runnableTasks);
+
+                while (runnableTasks.size() > 0) {
+                    Task t = runnableTasks.get();
+                    t._runExecute(null);
+                    if (t instanceof SessionTask) {
+                        SessionTask st = (SessionTask) t;
+                        if (st.isDone()) {
+                            st.close();
+                        }
+                    }
                 }
 
             }

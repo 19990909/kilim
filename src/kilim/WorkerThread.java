@@ -24,6 +24,13 @@ public class WorkerThread extends Thread {
         scheduler = ascheduler;
     }
     
+    public synchronized RingQueue<Task> swapRunnables(RingQueue<Task> emptyRunnables) {
+        RingQueue<Task> ret = tasks;
+        tasks = emptyRunnables;
+        return ret;
+    }
+
+    
     public WorkerThread(String name,Scheduler ascheduler) {
         super(name);
         scheduler = ascheduler;
