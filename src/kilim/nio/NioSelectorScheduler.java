@@ -14,9 +14,11 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import kilim.Mailbox;
+import kilim.NotPausable;
 import kilim.Pausable;
 import kilim.RingQueue;
 import kilim.Scheduler;
@@ -106,7 +108,7 @@ public class NioSelectorScheduler extends Scheduler {
 
 
     @Override
-    public void schedule(Task t) {
+    public void schedule(Task t) throws NotPausable {
         SelectorThread reactor = (SelectorThread) t.preferredResumeThread;
         // Set reactor if absent
         if (reactor == null) {
@@ -120,11 +122,15 @@ public class NioSelectorScheduler extends Scheduler {
                 }
             }
         }
-        // add to runnable tasks
-        reactor.addRunnableTask(t);
-        // wakeup reactor
+
+        // wakeup reactor if current thread is not reactor,otherwise run now.
         if (Thread.currentThread() != reactor) {
-            reactor.sel.wakeup();
+            // add to runnable tasks
+            reactor.addRunnableTask(t);
+            reactor.wakeup();
+        }
+        else {
+            t._runExecute(reactor);
         }
     }
 
@@ -146,7 +152,7 @@ public class NioSelectorScheduler extends Scheduler {
         super.shutdown();
         this.bossThread.sel.wakeup();
         for (SelectorThread worker : this.workers) {
-            worker.sel.wakeup();
+            worker.wakeup();
 
         }
     }
@@ -165,11 +171,20 @@ public class NioSelectorScheduler extends Scheduler {
 
         long wait = DEFAULT_WAIT;
 
+        private final AtomicBoolean wakenup = new AtomicBoolean(false);
+
 
         @Override
         public synchronized void addRunnableTask(Task t) {
-            super.addRunnableTask(t);
-            this.sel.wakeup();
+            this.tasks.put(t);
+            this.wakeup();
+        }
+
+
+        public void wakeup() {
+            if (this.wakenup.compareAndSet(false, true)) {
+                this.sel.wakeup();
+            }
         }
 
 
@@ -206,12 +221,31 @@ public class NioSelectorScheduler extends Scheduler {
                         }
                         break;
                     }
+                    RingQueue<Task> runnableTasks = new RingQueue<Task>(10);
+
+                    runnableTasks = this.swapRunnables(runnableTasks);
+
+                    while (runnableTasks.size() > 0) {
+                        Task t = runnableTasks.get();
+                        t._runExecute(null);
+                        if (t instanceof SessionTask) {
+                            SessionTask st = (SessionTask) t;
+                            if (st.isDone()) {
+                                st.close();
+                            }
+                        }
+                    }
+
+                    this.wakenup.set(false);
 
                     if (this.hasTasks()) {
                         n = this.sel.selectNow();
                     }
                     else {
                         n = this.sel.select(this.wait);
+                    }
+                    if (this.wakenup.get()) {
+                        this.sel.wakeup();
                     }
                 }
                 catch (IOException ignore) {
@@ -242,20 +276,6 @@ public class NioSelectorScheduler extends Scheduler {
                     catch (Throwable e) {
                         System.err.println("dispatch event error:" + e.getMessage());
                         e.printStackTrace();
-                    }
-                }
-                RingQueue<Task> runnableTasks = new RingQueue<Task>(100);
-
-                runnableTasks = this.swapRunnables(runnableTasks);
-
-                while (runnableTasks.size() > 0) {
-                    Task t = runnableTasks.get();
-                    t._runExecute(null);
-                    if (t instanceof SessionTask) {
-                        SessionTask st = (SessionTask) t;
-                        if (st.isDone()) {
-                            st.close();
-                        }
                     }
                 }
 
