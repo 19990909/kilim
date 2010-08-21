@@ -14,6 +14,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import kilim.Mailbox;
 import kilim.Pausable;
@@ -45,30 +46,45 @@ public class NioSelectorScheduler extends Scheduler {
     //TODO: Fix hardcoding
     public static int         LISTEN_BACKLOG  = 1000;
 
-    public Selector           sel;
+   
     /* 
-     * The thread in which the selector runs. THe NioSelectorScheduler only runs one thread,
-     * unlike typical schedulers that manage a pool of threads.
+     * The thread in which the selector runs. This thread schedule for OP_ACCEPT events.
      */
-    public SelectorThread     selectorThread;
-    
+    public SelectorThread     bossThread;
     /**
-     * SessionTask registers its endpoint with the selector by sending a SockEvent
-     * message on this mailbox. 
+     * NIo workers,schedule for read/write events.
      */
-    public Mailbox<SockEvent> registrationMbx = new Mailbox<SockEvent>(1000);
+    public SelectorThread[] workers;
+    
+    private final AtomicInteger sets=new AtomicInteger();
     
 
+    static final int DEFAULT_WORKER_COUNT=Runtime.getRuntime().availableProcessors()*2;
+    
+    public NioSelectorScheduler() throws IOException{
+        this(DEFAULT_WORKER_COUNT);
+    }
     /**
      * @throws IOException
      */
-    public NioSelectorScheduler() throws IOException {
-        this.sel = Selector.open();
-        selectorThread = new SelectorThread(this);
-        selectorThread.start();
-        Task t = new RegistrationTask(registrationMbx, sel);
+    public NioSelectorScheduler(int workerCount) throws IOException {
+        if(workerCount<=0)
+            workerCount=DEFAULT_WORKER_COUNT;
+        this.bossThread=newSelectorThread("boss");
+        this.workers=new SelectorThread[workerCount];
+        for(int i=0;i<workerCount;i++){
+            this.workers[i]=newSelectorThread("worker-"+i);
+        }
+    }
+    
+    private SelectorThread newSelectorThread(String namePostFix)throws IOException{
+        Selector sel=Selector.open();
+        SelectorThread result=new SelectorThread(namePostFix, sel, this);
+        result.start();
+        Task t = new RegistrationTask(result.registrationMbx, sel);
         t.setScheduler(this);
         t.start();
+        return result;
     }
 
     public void listen(int port, Class<? extends SessionTask> sockTaskClass, Scheduler sockTaskScheduler)
@@ -80,16 +96,28 @@ public class NioSelectorScheduler extends Scheduler {
 
     @Override
     public void schedule(Task t) {
+        SelectorThread reactor=t.getReactor();
+        if(t==null){
+            synchronized (t) {
+                if((reactor=t.getReactor())==null){
+                    reactor=this.workers[sets.incrementAndGet()%this.workers.length];
+                    t.setReactor(reactor);
+                }
+            }
+        }
         addRunnable(t);
-        if (Thread.currentThread() != selectorThread) {
-            sel.wakeup();
+        if (Thread.currentThread() != reactor) {
+            reactor.sel.wakeup();
         }
     }
 
     @Override
     public void shutdown() {
         super.shutdown();
-        sel.wakeup();
+        bossThread.sel.wakeup();
+        for(SelectorThread worker:workers){
+            worker.sel.wakeup();
+        }
     }
     
     synchronized void addRunnable(Task t) {
@@ -102,17 +130,24 @@ public class NioSelectorScheduler extends Scheduler {
         return ret;
     }
 
-    static class SelectorThread extends Thread {
+    public static class SelectorThread extends Thread {
         NioSelectorScheduler _scheduler;
-
-        public SelectorThread(NioSelectorScheduler scheduler) {
-            super("KilimSelector");
+        /**
+         * SessionTask registers its endpoint with the selector by sending a SockEvent
+         * message on this mailbox. 
+         */
+        public Mailbox<SockEvent> registrationMbx = new Mailbox<SockEvent>(1000);
+        
+        public Selector           sel;
+        
+        public SelectorThread(String namePosfix,Selector sel,NioSelectorScheduler scheduler) {
+            super("KilimSelector-"+namePosfix);
+            this.sel=sel;
             _scheduler = scheduler;
         }
 
         @Override
         public void run() {
-            Selector sel = _scheduler.sel;
             RingQueue<Task> runnables = new RingQueue<Task>(100); // to swap with scheduler
             while (true) {
                 int n;
@@ -200,7 +235,7 @@ public class NioSelectorScheduler extends Scheduler {
             ssc.socket().setReuseAddress(true);
             ssc.socket().bind(new InetSocketAddress(port), LISTEN_BACKLOG); //
             ssc.configureBlocking(false);
-            setEndPoint(new EndPoint(selScheduler.registrationMbx, ssc));
+            setEndPoint(new EndPoint(selScheduler.bossThread.registrationMbx, ssc));
         }
 
         public String toString() {

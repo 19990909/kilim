@@ -13,6 +13,8 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import kilim.nio.NioSelectorScheduler;
+
 /**
  * A base class for tasks. A task is a lightweight thread (it contains its 
  * own stack in the form of a fiber). A concrete subclass of Task must
@@ -82,6 +84,11 @@ public abstract class Task implements EventSubscriber {
     
 
     public    Object           exitResult = "OK";
+    
+    /**
+     * Associated reactor for nio scheduler
+     */
+    protected NioSelectorScheduler.SelectorThread reactor;
 
     // TODO: move into a separate timer service or into the schduler.
     public final static Timer timer = new Timer(true);
@@ -103,6 +110,14 @@ public abstract class Task implements EventSubscriber {
         return this;
     }
     
+    public synchronized NioSelectorScheduler.SelectorThread getReactor() {
+        return reactor;
+    }
+
+    public synchronized void setReactor(NioSelectorScheduler.SelectorThread reactor) {
+        this.reactor = reactor;
+    }
+
     public synchronized Scheduler getScheduler() {
       return scheduler;
     }
