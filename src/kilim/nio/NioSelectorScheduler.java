@@ -124,16 +124,11 @@ public class NioSelectorScheduler extends Scheduler {
                 }
             }
         }
-
+        // add to runnable tasks
+        reactor.addRunnableTask(t);
         // wakeup reactor if current thread is not reactor,otherwise run now.
         if (Thread.currentThread() != reactor) {
-            // add to runnable tasks
-            reactor.addRunnableTask(t);
             reactor.wakeup();
-        }
-        else {
-            boolean resetPreferredResumeThread = !(t instanceof SessionTask);
-            t._runExecute(reactor, resetPreferredResumeThread);
         }
     }
 
