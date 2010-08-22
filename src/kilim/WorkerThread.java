@@ -21,28 +21,29 @@ public class WorkerThread extends Thread {
 
     public WorkerThread(Scheduler ascheduler) {
         super("KilimWorker-" + gid.incrementAndGet());
-        scheduler = ascheduler;
+        this.scheduler = ascheduler;
     }
     
     public synchronized RingQueue<Task> swapRunnables(RingQueue<Task> emptyRunnables) {
-        RingQueue<Task> ret = tasks;
-        tasks = emptyRunnables;
+        RingQueue<Task> ret = this.tasks;
+        this.tasks = emptyRunnables;
         return ret;
     }
 
     
     public WorkerThread(String name,Scheduler ascheduler) {
         super(name);
-        scheduler = ascheduler;
+        this.scheduler = ascheduler;
     }
 
+    @Override
     public void run() {
         try {
             while (true) {
-                Task t = getNextTask(this); // blocks until task available
-                runningTask = t;
-                t._runExecute(this);
-                runningTask = null;
+                Task t = this.getNextTask(this); // blocks until task available
+                this.runningTask = t;
+                t._runExecute(this,true);
+                this.runningTask = null;
             }
         } catch (ShutdownException se) {
             // nothing to do.
@@ -51,32 +52,35 @@ public class WorkerThread extends Thread {
             System.exit(1);
         } catch (Throwable ex) {
             ex.printStackTrace();
-            System.err.println(runningTask);
+            System.err.println(this.runningTask);
         }
-        runningTask = null;
+        this.runningTask = null;
     }
 
     protected Task getNextTask(WorkerThread workerThread) throws ShutdownException {
         Task t = null;
         while (true) {
-            if (scheduler.isShutdown())
+            if (this.scheduler.isShutdown()) {
                 throw new ShutdownException();
+            }
 
-            t = getNextTask();
-            if (t != null)
+            t = this.getNextTask();
+            if (t != null) {
                 break;
+            }
 
             // try loading from scheduler
-            scheduler.loadNextTask(this);
+            this.scheduler.loadNextTask(this);
             synchronized (this) { // ///////////////////////////////////////
                 // Wait if still no task to execute.
-                t = tasks.get();
-                if (t != null)
+                t = this.tasks.get();
+                if (t != null) {
                     break;
+                }
 
-                scheduler.addWaitingThread(this);
+                this.scheduler.addWaitingThread(this);
                 try {
-                    wait();
+                    this.wait();
                 } catch (InterruptedException ignore) {
                 } // shutdown indicator checked above
             } // //////////////////////////////////////////////////////////
@@ -86,27 +90,27 @@ public class WorkerThread extends Thread {
     }
 
     public Task getCurrentTask() {
-        return runningTask;
+        return this.runningTask;
     }
 
     public synchronized void addRunnableTask(Task t) {
         assert t.preferredResumeThread == null || t.preferredResumeThread == this : "Task given to wrong thread";
-        tasks.put(t);
-        notify();
+        this.tasks.put(t);
+        this.notify();
     }
 
     public synchronized boolean hasTasks() {
-        return tasks.size() > 0;
+        return this.tasks.size() > 0;
     }
 
     public synchronized Task getNextTask() {
-        return tasks.get();
+        return this.tasks.get();
     }
 
     public synchronized void waitForMsgOrSignal() {
         try {
-            if (tasks.size() == 0) {
-                wait();
+            if (this.tasks.size() == 0) {
+                this.wait();
             }
         } catch (InterruptedException ignore) {
         }

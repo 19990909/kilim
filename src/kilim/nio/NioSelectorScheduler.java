@@ -132,7 +132,8 @@ public class NioSelectorScheduler extends Scheduler {
             reactor.wakeup();
         }
         else {
-            t._runExecute(reactor);
+            boolean resetPreferredResumeThread = !(t instanceof SessionTask);
+            t._runExecute(reactor, resetPreferredResumeThread);
         }
     }
 
@@ -152,7 +153,7 @@ public class NioSelectorScheduler extends Scheduler {
     @Override
     public void shutdown() {
         super.shutdown();
-        this.bossThread.sel.wakeup();
+        this.bossThread.wakeup();
         for (SelectorThread worker : this.workers) {
             worker.wakeup();
 
@@ -229,7 +230,8 @@ public class NioSelectorScheduler extends Scheduler {
 
                     while (runnableTasks.size() > 0) {
                         Task t = runnableTasks.get();
-                        t._runExecute(null);
+                        boolean resetPreferredResumeThread = !(t instanceof SessionTask);
+                        t._runExecute(this, resetPreferredResumeThread);
                         if (t instanceof SessionTask) {
                             SessionTask st = (SessionTask) t;
                             if (st.isDone()) {
