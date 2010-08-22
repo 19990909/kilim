@@ -126,8 +126,9 @@ public class NioSelectorScheduler extends Scheduler {
         }
         // add to runnable tasks
         reactor.addRunnableTask(t);
-        // wakeup reactor if current thread is not reactor,otherwise run now.
-        if (Thread.currentThread() != reactor) {
+        // wakeup reactor if current thread is not reactor and bossThread
+        final Thread currentThread = Thread.currentThread();
+        if (currentThread != reactor && currentThread != this.bossThread) {
             reactor.wakeup();
         }
     }
@@ -225,7 +226,8 @@ public class NioSelectorScheduler extends Scheduler {
 
                     while (runnableTasks.size() > 0) {
                         Task t = runnableTasks.get();
-                        //if task is not SessionTask or RegistrationTask,reset the PreferredResumeThread.
+                        // if task is not SessionTask or RegistrationTask,reset
+                        // the PreferredResumeThread.
                         boolean resetPreferredResumeThread =
                                 !(t instanceof SessionTask) && !(t instanceof RegistrationTask);
                         t._runExecute(this, resetPreferredResumeThread);
