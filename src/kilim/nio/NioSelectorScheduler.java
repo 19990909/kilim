@@ -225,7 +225,9 @@ public class NioSelectorScheduler extends Scheduler {
 
                     while (runnableTasks.size() > 0) {
                         Task t = runnableTasks.get();
-                        boolean resetPreferredResumeThread = !(t instanceof SessionTask);
+                        //if task is not SessionTask or RegistrationTask,reset the PreferredResumeThread.
+                        boolean resetPreferredResumeThread =
+                                !(t instanceof SessionTask) && !(t instanceof RegistrationTask);
                         t._runExecute(this, resetPreferredResumeThread);
                         if (t instanceof SessionTask) {
                             SessionTask st = (SessionTask) t;
