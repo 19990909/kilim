@@ -17,7 +17,6 @@ import java.nio.channels.SocketChannel;
 
 import junit.framework.TestCase;
 import kilim.Pausable;
-import kilim.Scheduler;
 import kilim.nio.EndPoint;
 import kilim.nio.NioSelectorScheduler;
 import kilim.nio.SessionTask;
@@ -30,13 +29,13 @@ public class TestIO extends TestCase {
     
     @Override
     protected void setUp() throws Exception {
-        nio = new NioSelectorScheduler(); // Starts a single thread that manages the select loop
-        nio.listen(PORT, EchoServer.class, Scheduler.getDefaultScheduler()); //
+        this.nio = new NioSelectorScheduler(); // Starts a single thread that manages the select loop
+        this.nio.listen(PORT, EchoServer.class); //
     }
     
     @Override
     protected void tearDown() throws Exception {
-        nio.shutdown();
+        this.nio.shutdown();
         Thread.sleep(500); // Allow the socket to be closed
     }
     
@@ -70,11 +69,11 @@ public class TestIO extends TestCase {
             byte[] sendbuf = baos.toByteArray();
             // Now write the bytes in little dribs and drabs and delaying in between. This tests fill's yield.
             OutputStream os = sc.socket().getOutputStream();
-            sendChunkWithDelay(os, sendbuf, 0, 1);  // splitting the length prefix
-            sendChunkWithDelay(os, sendbuf, 1, 2);
-            sendChunkWithDelay(os, sendbuf, 3, 4); 
-            sendChunkWithDelay(os, sendbuf, 7, 3);
-            sendChunkWithDelay(os, sendbuf, 10, sendbuf.length - 10); // the rest
+            this.sendChunkWithDelay(os, sendbuf, 0, 1);  // splitting the length prefix
+            this.sendChunkWithDelay(os, sendbuf, 1, 2);
+            this.sendChunkWithDelay(os, sendbuf, 3, 4); 
+            this.sendChunkWithDelay(os, sendbuf, 7, 3);
+            this.sendChunkWithDelay(os, sendbuf, 10, sendbuf.length - 10); // the rest
             
             // Ideally, would like to simulate flow control on the rcv end as well, but would have to turn off
             // socket buffering on the EchoServer side of things.  
@@ -148,7 +147,7 @@ public class TestIO extends TestCase {
         @Override
         public void execute() throws Pausable, Exception {
             ByteBuffer buf = ByteBuffer.allocate(100);
-            EndPoint ep = getEndPoint();
+            EndPoint ep = this.getEndPoint();
             while (true) {
                 buf.clear();
                 buf = ep.fillMessage(buf, 4, /*lengthIncludesItself*/ false);

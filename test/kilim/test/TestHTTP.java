@@ -33,14 +33,14 @@ public class TestHTTP extends TestCase {
     
     @Override
     protected void setUp() throws Exception {
-        nio = new NioSelectorScheduler(); // Starts a single thread that manages the select loop
-        nio.listen(PORT, TestHttpServer.class, Scheduler.getDefaultScheduler()); //
+        this.nio = new NioSelectorScheduler(); // Starts a single thread that manages the select loop
+        this.nio.listen(PORT, TestHttpServer.class); //
         Thread.sleep(50); // Allow the socket to be registered and opened.
     }
     
     @Override
     protected void tearDown() throws Exception {
-        nio.shutdown();
+        this.nio.shutdown();
         Scheduler.getDefaultScheduler().shutdown();
         PORT++; // start the next test with a new socket.
     }
@@ -107,6 +107,7 @@ public class TestHTTP extends TestCase {
     }
     
     public static class TestHttpServer extends HttpSession {
+        @Override
         public void execute() throws Pausable, Exception {
             try {
                 while (true) {
@@ -121,16 +122,16 @@ public class TestHTTP extends TestCase {
                         PrintWriter pw = new PrintWriter(resp.getOutputStream());
                         pw.append(req.uriPath).append(req.getQueryComponents().toString());
                         pw.flush();
-                        sendResponse(resp);
+                        this.sendResponse(resp);
                     } else if (req.method.equals("POST")) {
                         resp.setContentType("text");
                         PrintWriter pw = new PrintWriter(resp.getOutputStream());
                         String s = req.extractRange(req.contentOffset, req.contentOffset + req.contentLength);
                         pw.append(s);
                         pw.flush();
-                        sendResponse(resp);
+                        this.sendResponse(resp);
                     } else {
-                        problem(resp, HttpResponse.ST_BAD_REQUEST, "Only get accepted");
+                        this.problem(resp, HttpResponse.ST_BAD_REQUEST, "Only get accepted");
                     }
                     if (!req.keepAlive()) {
                         break;

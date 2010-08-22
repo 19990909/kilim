@@ -97,7 +97,7 @@ public class NioSelectorScheduler extends Scheduler {
     }
 
 
-    public void listen(int port, Class<? extends SessionTask> sockTaskClass, Scheduler sockTaskScheduler)
+    public void listen(int port, Class<? extends SessionTask> sockTaskClass)
             throws IOException {
         Task t = new ListenTask(port, this, sockTaskClass);
         t.setScheduler(this);
@@ -127,8 +127,15 @@ public class NioSelectorScheduler extends Scheduler {
         reactor.addRunnableTask(t);
         // wakeup reactor if current thread is not reactor and bossThread
         final Thread currentThread = Thread.currentThread();
-        if (reactor != currentThread) {
-            reactor.wakeup();
+        if (reactor != this.bossThread) {
+            if (reactor != currentThread && currentThread != this.bossThread) {
+                reactor.wakeup();
+            }
+        }
+        else {
+            if (currentThread != this.bossThread) {
+                reactor.wakeup();
+            }
         }
     }
 
@@ -329,10 +336,8 @@ public class NioSelectorScheduler extends Scheduler {
                     SessionTask task = this.sessionClass.newInstance();
                     task.setScheduler(this.selScheduler);
                     try {
-                        SelectorThread reactor = this.selScheduler.nextReactor();
-                        EndPoint ep = new EndPoint(reactor.registrationMbx, ch);
+                        EndPoint ep = new EndPoint(null, ch);
                         task.setEndPoint(ep);
-                        task.preferredResumeThread = reactor;
                         n++;
                         // System.out.println("Num sessions created:" + n);
                         task.start();

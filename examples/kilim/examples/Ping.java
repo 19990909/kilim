@@ -13,7 +13,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
 import kilim.Pausable;
-import kilim.Scheduler;
 import kilim.nio.EndPoint;
 import kilim.nio.NioSelectorScheduler;
 import kilim.nio.SessionTask;
@@ -40,8 +39,9 @@ public class Ping {
         } else {
             usage();
         }
-        if (args.length > 1)
+        if (args.length > 1) {
             parsePort(args[1]);
+        }
         System.out.println("kilim.examples.Ping " + (server ? "-server " : "-client ") + port);
         if (server) {
             Server.run();
@@ -57,9 +57,9 @@ public class Ping {
      */
     public static class Server extends SessionTask {
         public static void run() throws IOException {
-            Scheduler sessionScheduler = Scheduler.getDefaultScheduler(); // The scheduler/thread pool on which all tasks will be run
+            //Scheduler sessionScheduler = Scheduler.getDefaultScheduler(); // The scheduler/thread pool on which all tasks will be run
             NioSelectorScheduler nio = new NioSelectorScheduler(); // Starts a single thread that manages the select loop
-            nio.listen(port, Server.class, sessionScheduler); // 
+            nio.listen(port, Server.class); // 
         }
         
         @Override
@@ -67,7 +67,7 @@ public class Ping {
             System.out.println("[" + this.id + "] Connection rcvd"); 
             try {
                 while (true) {
-                    EndPoint ep = getEndPoint();
+                    EndPoint ep = this.getEndPoint();
                     ByteBuffer buf = ByteBuffer.allocate(PACKET_LEN);
                     buf = ep.fill(buf, PACKET_LEN); // Pauses until at least PACKET_LEN bytes have been rcvd in buf.
                     System.out.println("[" + this.id + "] Received pkt"); 
