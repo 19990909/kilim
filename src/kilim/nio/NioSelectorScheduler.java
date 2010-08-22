@@ -14,7 +14,6 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import kilim.Mailbox;
@@ -128,7 +127,7 @@ public class NioSelectorScheduler extends Scheduler {
         reactor.addRunnableTask(t);
         // wakeup reactor if current thread is not reactor and bossThread
         final Thread currentThread = Thread.currentThread();
-        if (currentThread != reactor && currentThread != this.bossThread) {
+        if (reactor != currentThread) {
             reactor.wakeup();
         }
     }
@@ -170,20 +169,18 @@ public class NioSelectorScheduler extends Scheduler {
 
         long wait = DEFAULT_WAIT;
 
-        private final AtomicBoolean wakenup = new AtomicBoolean(false);
-
 
         @Override
-        public synchronized void addRunnableTask(Task t) {
-            this.tasks.put(t);
+        public void addRunnableTask(Task t) {
+            synchronized (this) {
+                this.tasks.put(t);
+            }
             this.wakeup();
         }
 
 
         public void wakeup() {
-            if (this.wakenup.compareAndSet(false, true)) {
-                this.sel.wakeup();
-            }
+            this.sel.wakeup();
         }
 
 
@@ -239,16 +236,11 @@ public class NioSelectorScheduler extends Scheduler {
                         }
                     }
 
-                    this.wakenup.set(false);
-
                     if (this.hasTasks()) {
                         n = this.sel.selectNow();
                     }
                     else {
                         n = this.sel.select(this.wait);
-                    }
-                    if (this.wakenup.get()) {
-                        this.sel.wakeup();
                     }
                 }
                 catch (IOException ignore) {
