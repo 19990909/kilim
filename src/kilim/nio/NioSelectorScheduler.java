@@ -14,10 +14,10 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import kilim.Mailbox;
-import kilim.NotPausable;
 import kilim.Pausable;
 import kilim.RingQueue;
 import kilim.Scheduler;
@@ -97,8 +97,7 @@ public class NioSelectorScheduler extends Scheduler {
     }
 
 
-    public void listen(int port, Class<? extends SessionTask> sockTaskClass)
-            throws IOException {
+    public void listen(int port, Class<? extends SessionTask> sockTaskClass) throws IOException {
         Task t = new ListenTask(port, this, sockTaskClass);
         t.setScheduler(this);
         t.preferredResumeThread = this.bossThread;
@@ -107,7 +106,7 @@ public class NioSelectorScheduler extends Scheduler {
 
 
     @Override
-    public void schedule(Task t) throws NotPausable {
+    public void schedule(Task t) {
 
         SelectorThread reactor = (SelectorThread) t.preferredResumeThread;
         // Set reactor if absent
@@ -116,7 +115,6 @@ public class NioSelectorScheduler extends Scheduler {
                 if ((reactor = (SelectorThread) t.preferredResumeThread) == null) {
                     reactor = this.nextReactor();
                     t.preferredResumeThread = reactor;
-                    t.setScheduler(this);
                     if (t instanceof SessionTask) {
                         ((SessionTask) t).getEndPoint().sockEvMbx = reactor.registrationMbx;
                     }
@@ -158,7 +156,6 @@ public class NioSelectorScheduler extends Scheduler {
         this.bossThread.wakeup();
         for (SelectorThread worker : this.workers) {
             worker.wakeup();
-
         }
     }
 
@@ -176,18 +173,19 @@ public class NioSelectorScheduler extends Scheduler {
 
         long wait = DEFAULT_WAIT;
 
+        private final AtomicBoolean wakenUp = new AtomicBoolean(false);
+
 
         @Override
-        public void addRunnableTask(Task t) {
-            synchronized (this) {
-                this.tasks.put(t);
-            }
-            this.wakeup();
+        public synchronized void addRunnableTask(Task t) {
+            this.tasks.put(t);
         }
 
 
         public void wakeup() {
-            this.sel.wakeup();
+            if (this.wakenUp.compareAndSet(false, true)) {
+                this.sel.wakeup();
+            }
         }
 
 
@@ -224,30 +222,16 @@ public class NioSelectorScheduler extends Scheduler {
                         }
                         break;
                     }
-                    RingQueue<Task> runnableTasks = new RingQueue<Task>(10);
 
-                    runnableTasks = this.swapRunnables(runnableTasks);
-
-                    while (runnableTasks.size() > 0) {
-                        Task t = runnableTasks.get();
-                        // if task is not SessionTask or RegistrationTask,reset
-                        // the PreferredResumeThread.
-                        boolean resetPreferredResumeThread =
-                                !(t instanceof SessionTask) && !(t instanceof RegistrationTask);
-                        t._runExecute(this, resetPreferredResumeThread);
-                        if (t instanceof SessionTask) {
-                            SessionTask st = (SessionTask) t;
-                            if (st.isDone()) {
-                                st.close();
-                            }
-                        }
-                    }
-
+                    this.wakenUp.set(false);
                     if (this.hasTasks()) {
                         n = this.sel.selectNow();
                     }
                     else {
                         n = this.sel.select(this.wait);
+                    }
+                    if (this.wakenUp.get()) {
+                        this.sel.wakeup();
                     }
                 }
                 catch (IOException ignore) {
@@ -279,6 +263,28 @@ public class NioSelectorScheduler extends Scheduler {
                         System.err.println("dispatch event error:" + e.getMessage());
                         e.printStackTrace();
                     }
+                }
+                RingQueue<Task> runnableTasks = new RingQueue<Task>(100);
+                runnableTasks.reset();
+                runnableTasks = this.swapRunnables(runnableTasks);
+                try {
+                    while (runnableTasks.size() > 0) {
+                        Task t = runnableTasks.get();
+                        // if task is not SessionTask or RegistrationTask,reset
+                        // the PreferredResumeThread.
+                        boolean resetPreferredResumeThread =
+                                !(t instanceof SessionTask) && !(t instanceof RegistrationTask);
+                        t._runExecute(this, resetPreferredResumeThread);
+                        if (t instanceof SessionTask) {
+                            SessionTask st = (SessionTask) t;
+                            if (st.isDone()) {
+                                st.close();
+                            }
+                        }
+                    }
+                }
+                catch (Throwable ignore) {
+                    ignore.printStackTrace();
                 }
 
             }
