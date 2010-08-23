@@ -20,7 +20,7 @@ import kilim.nio.SessionTask;
 public class EchoServer extends SessionTask {
     static boolean server = false;
     static int port = 8007;
-    static int workerCount = Runtime.getRuntime().availableProcessors() * 2;
+    static int workerCount = Runtime.getRuntime().availableProcessors() ;
 
 
     static private void usage() {

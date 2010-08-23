@@ -342,7 +342,9 @@ public class NioSelectorScheduler extends Scheduler {
                     SessionTask task = this.sessionClass.newInstance();
                     task.setScheduler(this.selScheduler);
                     try {
-                        EndPoint ep = new EndPoint(null, ch);
+                        SelectorThread reactor = this.selScheduler.nextReactor();
+                        task.preferredResumeThread = reactor;
+                        EndPoint ep = new EndPoint(reactor.registrationMbx, ch);
                         task.setEndPoint(ep);
                         n++;
                         // System.out.println("Num sessions created:" + n);
