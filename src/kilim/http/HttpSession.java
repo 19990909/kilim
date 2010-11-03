@@ -26,7 +26,7 @@ public class HttpSession extends SessionTask {
      * @return the supplied request object. This is to encourage buffer reuse.
      * @throws IOException
      */
-    public HttpRequest readRequest(HttpRequest req) throws IOException, Pausable {
+    public HttpMsg readRequest(HttpRequest req) throws IOException, Pausable {
         req.reuse();
         req.readFrom(endpoint);
         return req;

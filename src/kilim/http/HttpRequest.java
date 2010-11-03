@@ -6,25 +6,32 @@
 
 package kilim.http;
 
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 
 import kilim.Pausable;
 import kilim.nio.EndPoint;
+import kilim.nio.ExposedBaos;
+
 
 /**
- * This object encapsulates a bytebuffer (via HttpMsg). HttpRequestParser creates an instance of this object, but only
- * converts a few of the important fields into Strings; the rest are maintained as ranges (offset + length) in the
- * bytebuffer. Use {@link #getHeader(String)} to get the appropriate field.
+ * This object encapsulates a bytebuffer (via HttpMsg). HttpRequestParser
+ * creates an instance of this object, but only converts a few of the important
+ * fields into Strings; the rest are maintained as ranges (offset + length) in
+ * the bytebuffer. Use {@link #getHeader(String)} to get the appropriate field.
  */
 public class HttpRequest extends HttpMsg {
-    // All the header related members of this class are initialized by the HttpRequestParser class.
+    // All the header related members of this class are initialized by the
+    // HttpRequestParser class.
 
     /**
-     * The original header. All string variables that pertain to the message's header are either subsequences of this
-     * header, or interned (all known keywords).
+     * The original header. All string variables that pertain to the message's
+     * header are either subsequences of this header, or interned (all known
+     * keywords).
      */
     public String method;
 
@@ -33,71 +40,72 @@ public class HttpRequest extends HttpMsg {
      */
     public String uriPath;
 
-    public int    nFields;
+    public int nFields;
     /**
      * Keys present in the HTTP header
      */
     public String keys[];
 
-    // range variables encode the offset and length within the header. The strings corresponding
-    // to these variables are created lazily.
-    public int    versionRange;
-    public int    uriFragmentRange;
-    public int    queryStringRange;
-    public int[]  valueRanges;
+    public String values[];
 
-    public int    contentOffset;
-    public int    contentLength;
-
-    /**
-     * The read cursor, used in the read* methods.
-     */
-    public int    iread;
+    public int uriFragmentRange;
+    public int queryStringRange;
+    public int[] valueRanges;
 
     public HttpRequest() {
-        keys = new String[5];
-        valueRanges = new int[5];
+        this.keys = new String[5];
+        this.valueRanges = new int[5];
+        this.values = new String[5];
     }
 
-    /** 
+
+    /**
      * Get the value for a given key
+     * 
      * @param key
      * @return null if the key is not present in the header.
      */
     public String getHeader(String key) {
-        for (int i = 0; i < nFields; i++) {
-            if (key.equalsIgnoreCase(keys[i])) {
-                return extractRange(valueRanges[i]);
+        for (int i = 0; i < this.nFields; i++) {
+            if (key.equalsIgnoreCase(this.keys[i])) {
+                if (this.values[i] != null) {
+                    return this.values[i];
+                }
+                else {
+                    return this.extractRange(this.valueRanges[i]);
+                }
             }
         }
         return ""; // no point returning null
     }
 
+
     /**
-     * @return the query part of the URI. 
+     * @return the query part of the URI.
      */
     public String getQuery() {
-        return extractRange(queryStringRange);
-    }
-    
-    public String version() {
-        return extractRange(versionRange);
-    }
-    
-    public boolean keepAlive() {
-        return isOldHttp() ? "Keep-Alive".equals(getHeader("Connection;")) : !("close".equals(getHeader("Connection")));
+        return this.extractRange(this.queryStringRange);
     }
 
+
+    public boolean keepAlive() {
+        return this.isOldHttp() ? "Keep-Alive".equals(this.getHeader("Connection;")) : !"close".equals(this
+            .getHeader("Connection"));
+    }
+
+
     public KeyValues getQueryComponents() {
-        String q = getQuery();
+        String q = this.getQuery();
         int len = q.length();
-        if (q == null || len == 0)
+        if (q == null || len == 0) {
             return new KeyValues(0);
+        }
 
         int numPairs = 0;
         for (int i = 0; i < len; i++) {
-            if (q.charAt(i) == '=')
+            if (q.charAt(i) == '=') {
                 numPairs++;
+            }
         }
         KeyValues components = new KeyValues(numPairs);
 
@@ -105,23 +113,27 @@ public class HttpRequest extends HttpMsg {
         String key = null;
         boolean url_encoded = false;
         for (int i = 0; i <= len; i++) {
-            char c = (i == len) ? '&' // pretending there's an artificial marker at the end of the string, to capture
-                                      // the last component
+            char c = i == len ? '&' // pretending there's an artificial marker
+                    // at the end of the string, to capture
+                    // the last component
                     : q.charAt(i);
 
-            if (c == '+' || c == '%')
+            if (c == '+' || c == '%') {
                 url_encoded = true;
+            }
             if (c == '=' || c == '&') {
                 String comp = q.substring(beg, i);
                 if (url_encoded) {
                     try {
                         comp = URLDecoder.decode(comp, "UTF-8");
-                    } catch (UnsupportedEncodingException ignore) {
+                    }
+                    catch (UnsupportedEncodingException ignore) {
                     }
                 }
                 if (key == null) {
                     key = comp;
-                } else {
+                }
+                else {
                     components.put(key, comp);
                     key = null;
                 }
@@ -132,240 +144,168 @@ public class HttpRequest extends HttpMsg {
         return components;
     }
 
+
     public String uriFragment() {
-        return extractRange(uriFragmentRange);
+        return this.extractRange(this.uriFragmentRange);
     }
 
+
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(500);
-        sb.append("method: ").append(method).append('\n').append("version: ").append(version()).append('\n').append(
-                "path = ").append(uriPath).append('\n').append("uri_fragment = ").append(uriFragment()).append('\n')
-                .append("query = ").append(getQueryComponents()).append('\n');
-        for (int i = 0; i < nFields; i++) {
-            sb.append(keys[i]).append(": ").append(extractRange(valueRanges[i])).append('\n');
+        sb.append("method: ").append(this.method).append('\n').append("version: ").append(this.version()).append('\n')
+            .append("path = ").append(this.uriPath).append('\n').append("uri_fragment = ").append(this.uriFragment())
+            .append('\n').append("query = ").append(this.getQueryComponents()).append('\n');
+        for (int i = 0; i < this.nFields; i++) {
+            sb.append(this.keys[i]).append(": ").append(this.extractRange(this.valueRanges[i])).append('\n');
         }
 
         return sb.toString();
     }
+
 
     /**
      * @return true if version is 1.0 or earlier
      */
     public boolean isOldHttp() {
         final byte b1 = (byte) '1';
-        int offset = versionRange >> 16;
-        return (buffer.get(offset) < b1 || buffer.get(offset + 2) < b1);
+        int offset = this.versionRange >> 16;
+        return this.buffer.get(offset) < b1 || this.buffer.get(offset + 2) < b1;
     }
+
 
     /**
-     * Clear the request object so that it can be reused for the next message. 
+     * Clear the request object so that it can be reused for the next message.
      */
     public void reuse() {
-        method = null;
-        uriPath = null;
-        versionRange = 0;
-        uriFragmentRange = queryStringRange = 0;
-        contentOffset = 0;
-        contentLength = 0;
+        this.method = null;
+        this.uriPath = null;
+        this.versionRange = 0;
+        this.uriFragmentRange = this.queryStringRange = 0;
+        this.contentOffset = 0;
+        this.contentLength = 0;
 
-        if (buffer != null) {
-            buffer.clear();
+        if (this.buffer != null) {
+            this.buffer.clear();
         }
-        for (int i = 0; i < nFields; i++) {
-            keys[i] = null;
+        for (int i = 0; i < this.nFields; i++) {
+            this.keys[i] = null;
         }
-        nFields = 0;
+        if (this.bodyStream != null) {
+            this.bodyStream.reset();
+        }
+        this.nFields = 0;
     }
 
-    
+    static final byte[] SPACE = " ".getBytes();
+    public static final byte[] PROTOCOL = "HTTP/1.1".getBytes();
+    public static final byte[] CRLF = "\r\n".getBytes();
+    public static final byte[] FIELD_SEP = ": ".getBytes();
+
+
+    public void setContentLength(long length) {
+        this.addField("Content-Length", Long.toString(length));
+    }
+
+
+    public void writeHeader(OutputStream os) throws IOException {
+        DataOutputStream dos = new DataOutputStream(os);
+        dos.write(this.method.getBytes());
+        dos.write(SPACE);
+        dos.write(this.uriPath.getBytes());
+        dos.write(SPACE);
+        dos.write(PROTOCOL);
+        dos.write(CRLF);
+        if (this.bodyStream != null) {
+            this.setContentLength(this.bodyStream.size());
+        }
+
+        for (int i = 0; i < this.nFields; i++) {
+            String key = this.keys[i];
+            String value = this.values[i];
+            dos.write(key.getBytes());
+            dos.write(FIELD_SEP);
+            dos.write(value.getBytes());
+            dos.write(CRLF);
+        }
+        dos.write(CRLF);
+    }
+
+
+    public void writeTo(EndPoint endpoint) throws IOException, Pausable {
+        ExposedBaos headerStream = new ExposedBaos();
+        this.writeHeader(headerStream);
+        ByteBuffer bb = headerStream.toByteBuffer();
+        System.out.println(new String(bb.array()));
+        endpoint.write(bb);
+        if (this.bodyStream != null && this.bodyStream.size() > 0) {
+            bb = this.bodyStream.toByteBuffer();
+            endpoint.write(bb);
+        }
+    }
+
+
     /*
-     * Internal methods 
+     * Internal methods
      */
     public void readFrom(EndPoint endpoint) throws Pausable, IOException {
-        iread = 0;
-        readHeader(endpoint);
-        readBody(endpoint);
+        this.iread = 0;
+        this.readHeader(endpoint);
+        this.readBody(endpoint);
     }
 
+
     public void readHeader(EndPoint endpoint) throws Pausable, IOException {
-        buffer = ByteBuffer.allocate(1024);
+        this.buffer = ByteBuffer.allocate(1024*1024);
         int headerLength = 0;
         int n;
         do {
-            n = readLine(endpoint); // includes 2 bytes for CRLF
+            n = this.readLine(endpoint); // includes 2 bytes for CRLF
             headerLength += n;
         } while (n > 2); // until blank line (CRLF)
         // dumpBuffer(buffer);
         HttpRequestParser.initHeader(this, headerLength);
-        contentOffset = headerLength; // doesn't mean there's necessarily any content.
-        String cl = getHeader("Content-Length");
+        this.contentOffset = headerLength; // doesn't mean there's necessarily
+        // any content.
+        String cl = this.getHeader("Content-Length");
         if (cl.length() > 0) {
             try {
-                contentLength = Integer.parseInt(cl);
-            } catch (NumberFormatException nfe) {
+                this.contentLength = Integer.parseInt(cl);
+            }
+            catch (NumberFormatException nfe) {
                 throw new IOException("Malformed Content-Length hdr");
             }
-        } else if ((getHeader("Transfer-Encoding").indexOf("chunked") >= 0)
-                || (getHeader("TE").indexOf("chunked") >= 0)) {
-            contentLength = -1;
-        } else {
-            contentLength = 0;
+        }
+        else if (this.getHeader("Transfer-Encoding").indexOf("chunked") >= 0
+                || this.getHeader("TE").indexOf("chunked") >= 0) {
+            this.contentLength = -1;
+        }
+        else {
+            this.contentLength = 0;
         }
     }
 
-    public void dumpBuffer(ByteBuffer buffer) {
-        byte[] ba = buffer.array();
-        int len = buffer.position();
-        for (int i = 0; i < len; i++) {
-            System.out.print((char) ba[i]);
-        }
-    }
 
     public void addField(String key, int valRange) {
-        if (keys.length == nFields) {
-            keys = (String[]) Utils.growArray(keys, 5);
-            valueRanges = Utils.growArray(valueRanges, 5);
+        if (this.keys.length == this.nFields) {
+            this.keys = (String[]) Utils.growArray(this.keys, 5);
+            this.valueRanges = Utils.growArray(this.valueRanges, 5);
         }
-        keys[nFields] = key;
-        valueRanges[nFields] = valRange;
-        nFields++;
+        this.keys[this.nFields] = key;
+        this.valueRanges[this.nFields] = valRange;
+        this.nFields++;
     }
 
 
-    // complement of HttpRequestParser.encodeRange
-    public String extractRange(int range) {
-        int beg = range >> 16;
-        int end = range & 0xFFFF;
-        return extractRange(beg, end);
-    }
-
-    public String extractRange(int beg, int end) {
-        return new String(buffer.array(), beg, (end - beg));
-    }
-
-
-    /*
-     * Read entire content into request's buffer
-     */
-    public void readBody(EndPoint endpoint) throws Pausable, IOException {
-        iread = contentOffset;
-        if (contentLength > 0) {
-            fill(endpoint, contentOffset, contentLength);
-            iread = contentOffset + contentLength;
-        } else if (contentLength == -1) {
-            // CHUNKED
-            readAllChunks(endpoint);
+    public void addField(String key, String value) {
+        if (this.keys.length == this.nFields) {
+            this.keys = (String[]) Utils.growArray(this.keys, 5);
+            this.valueRanges = Utils.growArray(this.valueRanges, 5);
+            this.values = (String[]) Utils.growArray(this.values, 5);
         }
-        readTrailers(endpoint);
-    }
-
-    public void readTrailers(EndPoint endpoint) {
-    }
-
-    /*
-     * Read all chunks until  a chunksize of 0 is received, then consolidate the chunks into a single contiguous chunk.
-     * At the end of this method, the entire content is available in the requests buffer, starting at contentOffset and
-     * of length contentLength.
-     */
-    public void readAllChunks(EndPoint endpoint) throws IOException, Pausable {
-        IntList chunkRanges = new IntList(); // alternate numbers in this list refer to the start and end offsets of chunks.
-        do {
-            int n = readLine(endpoint); // read chunk size text into buffer
-            int beg = iread;
-            int size = parseChunkSize(buffer, iread - n, iread); // Parse size in hex, ignore extension
-            if (size == 0)
-                break;
-            // If the chunk has not already been read in, do so
-            fill(endpoint, iread, size+2 /*chunksize + CRLF*/);
-            // record chunk start and end
-            chunkRanges.add(beg); 
-            chunkRanges.add(beg + size); // without the CRLF
-            iread += size + 2; // for the next round.
-        } while (true);
-
-        // / consolidate all chunkRanges
-        if (chunkRanges.numElements == 0) {
-            contentLength = 0;
-            return;
-        }
-        contentOffset = chunkRanges.get(0); // first chunk's beginning
-        int endOfLastChunk = chunkRanges.get(1); // first chunk's end
-
-        byte[] bufa = buffer.array();
-        for (int i = 2; i < chunkRanges.numElements; i += 2) {
-            int beg = chunkRanges.get(i);
-            int chunkSize = chunkRanges.get(i + 1) - beg;
-            System.arraycopy(bufa, beg, bufa, endOfLastChunk, chunkSize);
-            endOfLastChunk += chunkSize;
-        }
-        // TODO move all trailer stuff up
-        contentLength = endOfLastChunk - contentOffset;
-        
-        // At this point, the contentOffset and contentLen give the entire content 
+        this.keys[this.nFields] = key;
+        this.values[this.nFields] = value;
+        this.nFields++;
     }
     
-
-    public static byte CR = (byte) '\r';
-    public static byte LF = (byte) '\n';
-    static final byte  b0 = (byte) '0', b9 = (byte) '9';
-    static final byte  ba = (byte) 'a', bf = (byte) 'f';
-    static final byte  bA = (byte) 'A', bF = (byte) 'F';
-    static final byte  SEMI = (byte)';';
-
-    public static int parseChunkSize(ByteBuffer buffer, int start, int end) throws IOException {
-        byte[] bufa = buffer.array();
-        int size = 0;
-        for (int i = start; i < end; i++) {
-            byte b = bufa[i];
-            if (b >= b0 && b <= b9) {
-                size = size * 16 + (b - b0);
-            } else if (b >= ba && b <= bf) {
-                size = size * 16 + ((b - ba) + 10);
-            } else if (b >= bA && b <= bF) {
-                size = size * 16 + ((b - bA) + 10);
-            } else if (b == CR || b == SEMI) { 
-                // SEMI-colon starts a chunk extension. We ignore extensions currently.
-                break;
-            } else {
-                throw new IOException("Error parsing chunk size; unexpected char " + b + " at offset " + i);
-            }
-        }
-        return size;
-    }
-
-    // topup if request's buffer doesn't have all the bytes yet.
-    public void fill(EndPoint endpoint, int offset, int size) throws IOException, Pausable {
-        int total = offset + size;
-        int currentPos = buffer.position();
-        if (total > buffer.position()) {
-            buffer = endpoint.fill(buffer, (total - currentPos));
-        }
-    }
-
-    public int readLine(EndPoint endpoint) throws IOException, Pausable {
-        int ireadSave = iread;
-        int i = ireadSave;
-        while (true) {
-            int end = buffer.position();
-            byte[] bufa = buffer.array();
-            for (; i < end; i++) {
-                if (bufa[i] == CR) {
-                    ++i;
-                    if (i >= end) {
-                        buffer = endpoint.fill(buffer, 1);
-                        bufa = buffer.array(); // fill could have changed the buffer.
-                        end = buffer.position();
-                    }
-                    if (bufa[i] != LF) {
-                        throw new IOException("Expected LF at " + i);
-                    }
-                    ++i;
-                    int lineLength = i - ireadSave;
-                    iread = i;
-                    return lineLength;
-                }
-            }
-            buffer = endpoint.fill(buffer, 1); // no CRLF found. fill a bit more and start over.
-        }
-    }
 }

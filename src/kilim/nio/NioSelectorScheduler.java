@@ -105,6 +105,15 @@ public class NioSelectorScheduler extends Scheduler {
     }
 
 
+    public EndPoint connect(InetSocketAddress addr, Class<? extends SessionTask> sockTaskClass) throws IOException {
+        ConnectTask t = new ConnectTask(addr, this, sockTaskClass);
+        t.setScheduler(this);
+        t.preferredResumeThread = this.bossThread;
+        t.start();
+        return t.endpoint;
+    }
+
+
     @Override
     public void schedule(Task t) {
 
@@ -283,6 +292,7 @@ public class NioSelectorScheduler extends Scheduler {
                         }
                     }
                 }
+
                 catch (Throwable ignore) {
                     ignore.printStackTrace();
                 }
@@ -356,6 +366,57 @@ public class NioSelectorScheduler extends Scheduler {
                         ioe.printStackTrace();
                     }
                 }
+            }
+        }
+    }
+
+    public static class ConnectTask extends SessionTask {
+        Class<? extends SessionTask> sessionClass;
+        SocketChannel sc;
+        NioSelectorScheduler selScheduler;
+        InetSocketAddress remoteAddr;
+        SessionTask task;
+
+
+        public ConnectTask(InetSocketAddress remoteAddr, NioSelectorScheduler selScheduler,
+                Class<? extends SessionTask> sessionClass) throws IOException {
+            this.remoteAddr = remoteAddr;
+            this.sessionClass = sessionClass;
+            this.sc = SocketChannel.open();
+            this.selScheduler = selScheduler;
+            this.sc.socket().setReuseAddress(true);
+            this.sc.configureBlocking(false);
+            try {
+                SelectorThread reactor = this.selScheduler.nextReactor();
+                this.task = this.sessionClass.newInstance();
+                this.task.setScheduler(this.selScheduler);
+                this.task.preferredResumeThread = reactor;
+                final EndPoint ep = new EndPoint(reactor.registrationMbx, this.sc);
+                this.task.setEndPoint(ep);
+            }
+            catch (Exception e) {
+                throw new RuntimeException("Connect to " + remoteAddr + " fail", e);
+            }
+        }
+
+
+        @Override
+        public String toString() {
+            return "ConnectTask: " + this.remoteAddr;
+        }
+
+
+        @Override
+        public void execute() throws Pausable, Exception {
+            if (this.sc.connect(this.remoteAddr)) {
+                this.task.start();
+            }
+            else {
+                this.task.endpoint.pauseUntilConnectable();
+                if (!this.sc.finishConnect()) {
+                    throw new IOException("Finish connect to " + this.remoteAddr + " fail");
+                }
+                this.task.start();
             }
         }
     }
