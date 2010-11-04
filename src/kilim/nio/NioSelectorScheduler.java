@@ -110,7 +110,13 @@ public class NioSelectorScheduler extends Scheduler {
         t.setScheduler(this);
         t.preferredResumeThread = this.bossThread;
         t.start();
-        return (EndPoint) t.join().result;
+        Object result = t.join().result;
+        if (result instanceof EndPoint) {
+            return (EndPoint) result;
+        }
+        else {
+            throw new IOException("Connect fail to " + addr);
+        }
     }
 
 
@@ -405,7 +411,7 @@ public class NioSelectorScheduler extends Scheduler {
                     throw new IOException("Finish connect to " + this.remoteAddr + " fail");
                 }
             }
-            exit(this.endpoint);
+            this.exitResult = this.endpoint;
         }
     }
 

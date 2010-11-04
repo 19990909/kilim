@@ -27,7 +27,6 @@ import java.util.zip.GZIPInputStream;
 import kilim.Constants;
 import kilim.Pausable;
 import kilim.nio.EndPoint;
-import kilim.nio.ExposedBaos;
 
 
 /**
@@ -162,6 +161,7 @@ public class HttpResponse extends HttpMsg {
     }
 
 
+    @Override
     public void writeHeader(OutputStream os) throws IOException {
         DataOutputStream dos = new DataOutputStream(os);
         dos.write(PROTOCOL);
@@ -203,30 +203,9 @@ public class HttpResponse extends HttpMsg {
     }
 
 
-    public void writeTo(EndPoint endpoint) throws IOException, Pausable {
-        ExposedBaos headerStream = new ExposedBaos();
-        this.writeHeader(headerStream);
-        ByteBuffer bb = headerStream.toByteBuffer();
-        endpoint.write(bb);
-        if (this.bodyStream != null && this.bodyStream.size() > 0) {
-            bb = this.bodyStream.toByteBuffer();
-            endpoint.write(bb);
-        }
-    }
-
-
-    /*
-     * Internal methods
-     */
-    public void readFrom(EndPoint endpoint) throws Pausable, IOException {
-        this.iread = 0;
-        this.readHeader(endpoint);
-        this.readBody(endpoint);
-    }
-
-
+    @Override
     public void readHeader(EndPoint endpoint) throws Pausable, IOException {
-        this.buffer = ByteBuffer.allocate(1024);
+        this.buffer = ByteBuffer.allocate(64 * 1024);
         int headerLength = 0;
         int n;
         do {
@@ -291,7 +270,7 @@ public class HttpResponse extends HttpMsg {
         return this.extractRange(this.reasonRange);
     }
 
-    private final Pattern charsetRegex = Pattern.compile("charset=([0-9A-Za-z]+)");
+    private final Pattern charsetRegex = Pattern.compile("charset=([0-9A-Za-z-]+)");
 
 
     public String charset() {

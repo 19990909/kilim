@@ -15,7 +15,7 @@ import kilim.nio.EndPoint;
 import kilim.nio.ExposedBaos;
 
 
-public class HttpMsg {
+public abstract class HttpMsg {
     public static byte CR = (byte) '\r';
     public static byte LF = (byte) '\n';
     static final byte b0 = (byte) '0';
@@ -205,6 +205,34 @@ public class HttpMsg {
             this.buffer = endpoint.fill(this.buffer, 1); // no CRLF found. fill
             // a bit more and start
             // over.
+        }
+    }
+
+
+    public abstract void readHeader(EndPoint endpoint) throws Pausable, IOException;
+
+
+    /*
+     * Internal methods
+     */
+    public void readFrom(EndPoint endpoint) throws Pausable, IOException {
+        this.iread = 0;
+        this.readHeader(endpoint);
+        this.readBody(endpoint);
+    }
+
+
+    public abstract void writeHeader(OutputStream headerStream) throws IOException;
+
+
+    public void writeTo(EndPoint endpoint) throws IOException, Pausable {
+        ExposedBaos headerStream = new ExposedBaos();
+        this.writeHeader(headerStream);
+        ByteBuffer bb = headerStream.toByteBuffer();
+        endpoint.write(bb);
+        if (this.bodyStream != null && this.bodyStream.size() > 0) {
+            bb = this.bodyStream.toByteBuffer();
+            endpoint.write(bb);
         }
     }
 

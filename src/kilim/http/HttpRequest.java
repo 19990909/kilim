@@ -15,7 +15,6 @@ import java.nio.ByteBuffer;
 
 import kilim.Pausable;
 import kilim.nio.EndPoint;
-import kilim.nio.ExposedBaos;
 
 
 /**
@@ -209,6 +208,7 @@ public class HttpRequest extends HttpMsg {
     }
 
 
+    @Override
     public void writeHeader(OutputStream os) throws IOException {
         DataOutputStream dos = new DataOutputStream(os);
         dos.write(this.method.getBytes());
@@ -233,31 +233,9 @@ public class HttpRequest extends HttpMsg {
     }
 
 
-    public void writeTo(EndPoint endpoint) throws IOException, Pausable {
-        ExposedBaos headerStream = new ExposedBaos();
-        this.writeHeader(headerStream);
-        ByteBuffer bb = headerStream.toByteBuffer();
-        // System.out.println(new String(bb.array()));
-        endpoint.write(bb);
-        if (this.bodyStream != null && this.bodyStream.size() > 0) {
-            bb = this.bodyStream.toByteBuffer();
-            endpoint.write(bb);
-        }
-    }
-
-
-    /*
-     * Internal methods
-     */
-    public void readFrom(EndPoint endpoint) throws Pausable, IOException {
-        this.iread = 0;
-        this.readHeader(endpoint);
-        this.readBody(endpoint);
-    }
-
-
+    @Override
     public void readHeader(EndPoint endpoint) throws Pausable, IOException {
-        this.buffer = ByteBuffer.allocate(1024 * 1024);
+        this.buffer = ByteBuffer.allocate(64 * 1024);
         int headerLength = 0;
         int n;
         do {
