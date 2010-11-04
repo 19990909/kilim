@@ -6,15 +6,18 @@
 
 package kilim.http;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
+import java.io.UnsupportedEncodingException;
 import java.net.InetSocketAddress;
 import java.net.URL;
-import java.util.zip.GZIPInputStream;
+import java.net.URLEncoder;
+import java.nio.channels.SocketChannel;
+import java.util.Map;
+import java.util.Set;
+import java.util.Map.Entry;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 
 import kilim.Pausable;
 import kilim.nio.EndPoint;
@@ -22,10 +25,22 @@ import kilim.nio.NioSelectorScheduler;
 
 
 /**
- * A very rudimentary HTTP server bound to a specific given port.
+ * A very rudimentary HTTP client
  */
 public class HttpClient {
+    public static String KEEP_ALIVE_TIME = "115";
+    public static final String POST_CONTENT_TYPE = "application/x-www-form-urlencoded";
+    public static String USER_AGENT = "Kilim HttpClient";
+    public static String CHARSET = "GB2312";
+    public static final String GET_METHOD = "GET";
+    public static final String POST_METHOD = "POST";
+
     public NioSelectorScheduler nio;
+
+    private final int poolSize = 5;
+
+    private final ConcurrentHashMap<String/* host:port */, BlockingQueue<EndPoint>> endpointCache =
+            new ConcurrentHashMap<String, BlockingQueue<EndPoint>>();
 
 
     public HttpClient() throws IOException {
@@ -33,150 +48,141 @@ public class HttpClient {
     }
 
 
-    public HttpClient(InetSocketAddress remoteAddr, Class<? extends HttpSession> httpSessionClass) throws IOException {
-        this.nio = new NioSelectorScheduler();
-        this.connect(remoteAddr, httpSessionClass);
+    public HttpClient(NioSelectorScheduler scheduler) throws IOException {
+        this.nio = scheduler;
     }
 
 
-    public EndPoint connect(InetSocketAddress remoteAddr, Class<? extends HttpSession> httpSessionClass)
-            throws IOException {
-        return this.nio.connect(remoteAddr, httpSessionClass);
+    private String getCacheKey(URL url) {
+        return url.getHost() + ":" + this.getPort(url);
     }
 
 
-    public void get(String url) throws Exception {
+    private int getPort(URL url) {
+        return url.getPort() == -1 ? url.getDefaultPort() : url.getPort();
     }
 
-    public static class MySessionTask extends HttpSession {
-        @Override
-        public void execute() throws Pausable, Exception {
-            HttpRequest request = new HttpRequest();
-            request.method = "GET";
-            request.uriPath = "/index.html";
-            request.addField("Host", "www.163.com");
-            request.addField("User-Agent", "Mozilla/5.0 (X11; U; Linux i686; zh-CN; rv:1.9.2.12) Gecko/20101027 Ubuntu/10.10 (maverick) Firefox/3.6.12");
-            request.addField("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 
-            request.addField("Accept-Language", "zh-cn,zh;q=0.5");
-            request.addField("Accept-Encoding", "gzip,deflate");
-            request.addField("Accept-Charset", "GB2312,utf-8;q=0.7,*;q=0.7");
-            request.addField("Keep-Alive", "115");
-            request.addField("Connection", "keep-alive");
+    public HttpResponse get(String url) throws Pausable, Exception {
+        return this.get(new URL(url));
+    }
 
-            request.writeTo(this.endpoint);
-            HttpResponse httpResponse = new HttpResponse();
-            httpResponse.readFrom(this.endpoint);
-            String s =uncompress(httpResponse.buffer.array(),httpResponse.contentOffset, httpResponse.contentOffset + httpResponse.contentLength);
-            System.out.println(httpResponse.status());
-            System.out.println(httpResponse.getHeader("Content-Type"));
-            System.out.println(s);
+
+    private HttpResponse get(final URL url) throws Pausable, Exception {
+        EndPoint endpoint = this.getEndPoint(url);
+        HttpRequest request = new HttpRequest();
+        request.method = GET_METHOD;
+
+        request.uriPath = url.getPath();
+        request.addField("Host", url.getHost());
+        request.addField("User-Agent", USER_AGENT);
+        request.addField("Connection", "keep-alive");
+
+        request.writeTo(endpoint);
+        HttpResponse httpResponse = new HttpResponse();
+        httpResponse.readFrom(endpoint);
+        this.releaseEndPoint(url, endpoint);
+        return httpResponse;
+    }
+
+
+    private String buildQueryString(Map<String, CharSequence> params, String charset) throws IOException {
+        if (params == null) {
+            return null;
         }
+
+        StringBuilder query = new StringBuilder();
+        Set<Entry<String, CharSequence>> entries = params.entrySet();
+        boolean hasParam = false;
+
+        for (Entry<String, CharSequence> entry : entries) {
+            String name = entry.getKey();
+            String value = entry.getValue().toString();
+            if (name != null && name.length() > 0 && value != null) {
+                if (hasParam) {
+                    query.append("&");
+                }
+
+                query.append(name).append("=").append(URLEncoder.encode(value, charset));
+                hasParam = true;
+            }
+        }
+
+        return query.toString();
+    }
+
+
+    public HttpResponse post(URL url, Map<String, CharSequence> params) throws Pausable, Exception {
+        final String body = this.buildQueryString(params, CHARSET);
+        return this.post(url, body);
     }
     
-    public static String uncompress(byte []buf,int offset,int length){
-        // 处理压缩过的配置信息的逻辑
-        InputStream is = null;
-        GZIPInputStream gzin = null;
-        InputStreamReader isr = null;
-        BufferedReader br = null;
-        StringBuilder sb=new StringBuilder();
-        try {
-            is =new ByteArrayInputStream(buf, offset, length);
-            gzin = new GZIPInputStream(is);
-            isr = new InputStreamReader(gzin, "gb2312"); // 设置读取流的编码格式，自定义编码
-            br = new BufferedReader(isr);
-            char[] buffer = new char[4096];
-            int readlen = -1;
-            while ((readlen = br.read(buffer, 0, 4096)) != -1) {
-                sb.append(buffer, 0, readlen);
+    public HttpResponse post(String url, Map<String, CharSequence> params) throws Pausable, Exception {
+        final String body = this.buildQueryString(params, CHARSET);
+        return this.post(new URL(url), body);
+    }
+
+
+    private HttpResponse post(URL url, final String body) throws Pausable, Exception, IOException,
+            UnsupportedEncodingException {
+        EndPoint endpoint = this.getEndPoint(url);
+        HttpRequest request = new HttpRequest();
+        request.method = POST_METHOD;
+
+        request.uriPath = url.getPath();
+        request.addField("Host", url.getHost());
+        request.addField("User-Agent", USER_AGENT);
+        request.addField("Content-Type", POST_CONTENT_TYPE);
+
+        request.getOutputStream().write(body.getBytes(CHARSET));
+
+        request.writeTo(endpoint);
+        HttpResponse httpResponse = new HttpResponse();
+        httpResponse.readFrom(endpoint);
+        this.releaseEndPoint(url, endpoint);
+        return httpResponse;
+    }
+
+
+    private EndPoint getEndPoint(URL url) throws Pausable, Exception {
+        final String key = this.getCacheKey(url);
+        BlockingQueue<EndPoint> pool = this.endpointCache.get(key);
+        if (pool == null) {
+            pool = new ArrayBlockingQueue<EndPoint>(this.poolSize);
+            BlockingQueue<EndPoint> oldPool = this.endpointCache.putIfAbsent(key, pool);
+            if (oldPool != null) {
+                pool = oldPool;
             }
         }
-        catch (Exception e) {
-            e.printStackTrace();
+        EndPoint head = pool.poll();
+
+        if (head != null && ((SocketChannel) head.sockch).isConnected()) {
+            return head;
         }
-        finally {
-            try {
-                br.close();
-            }
-            catch (Exception e1) {
-                // ignore
-            }
-            try {
-                isr.close();
-            }
-            catch (Exception e1) {
-                // ignore
-            }
-            try {
-                gzin.close();
-            }
-            catch (Exception e1) {
-                // ignore
-            }
-            try {
-                is.close();
-            }
-            catch (Exception e1) {
-                // ignore
+        if (head != null) {
+            head.close();
+        }
+
+        head = this.nio.connect(new InetSocketAddress(url.getHost(), this.getPort(url)));
+        return head;
+    }
+
+
+    private void releaseEndPoint(URL url, EndPoint ep) throws Exception {
+        final String key = this.getCacheKey(url);
+        BlockingQueue<EndPoint> pool = this.endpointCache.get(key);
+        if (pool == null) {
+            pool = new ArrayBlockingQueue<EndPoint>(this.poolSize);
+            BlockingQueue<EndPoint> oldPool = this.endpointCache.putIfAbsent(key, pool);
+            if (oldPool != null) {
+                pool = oldPool;
             }
         }
-        return sb.toString();
+        if (!pool.offer(ep)) {
+            ep.close();
+        }
     }
 
     static final int TIMEOUT = 10000;
 
-
-    /**
-     * http get调用
-     * 
-     * @param urlString
-     * @return
-     */
-    private static String invokeURL(String urlString) {
-        HttpURLConnection conn = null;
-        URL url = null;
-        try {
-            url = new URL(urlString);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(TIMEOUT);
-            conn.setReadTimeout(TIMEOUT);
-            conn.setRequestMethod("GET");
-            conn.connect();
-            InputStream urlStream = conn.getInputStream();
-            StringBuilder sb = new StringBuilder();
-            BufferedReader reader = null;
-            try {
-                reader = new BufferedReader(new InputStreamReader(urlStream));
-                String line = null;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-            }
-            finally {
-                if (reader != null) {
-                    reader.close();
-                }
-            }
-            return sb.toString();
-
-        }
-        catch (Exception e) {
-            e.printStackTrace();
-        }
-        finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
-        }
-        return "error";
-    }
-
-
-    public static void main(String[] args) throws Exception {
-        // System.out.println(invokeURL("http://www.163.com/index.html"));
-        HttpClient client = new HttpClient(new InetSocketAddress("www.163.com", 80), MySessionTask.class);
-        // client.get("/index.html");
-
-    }
 }

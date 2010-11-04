@@ -6,15 +6,23 @@
 
 package kilim.http;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
 
 import kilim.Constants;
 import kilim.Pausable;
@@ -281,6 +289,117 @@ public class HttpResponse extends HttpMsg {
 
     public String reason() {
         return this.extractRange(this.reasonRange);
+    }
+
+    private final Pattern charsetRegex = Pattern.compile("charset=([0-9A-Za-z]+)");
+
+
+    public String charset() {
+        String contentType = this.getHeader("Content-Type");
+        String charset = null;
+        Matcher matcher = this.charsetRegex.matcher(contentType);
+        if (matcher.find()) {
+            charset = matcher.group(1);
+        }
+        else {
+            charset = "utf-8";
+        }
+        return charset;
+    }
+
+
+    /**
+     * Get the response content
+     * 
+     * @return
+     */
+    public String content() {
+        if (this.isGZipContent()) {
+            return this.uncompress(this.buffer.array(), this.contentOffset, this.contentLength);
+        }
+        else {
+            try {
+                return new String(this.buffer.array(), this.contentOffset, this.contentLength, this.charset());
+            }
+            catch (UnsupportedEncodingException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+
+    /**
+     * Check if contents are gzip compressed.
+     * 
+     * @return
+     */
+    public boolean isGZipContent() {
+        final String encoding = this.getHeader("Content-Encoding");
+        if (null != encoding) {
+            if (encoding.toLowerCase().indexOf("gzip") > -1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    /**
+     * Uncompress the content
+     * 
+     * @param buf
+     * @param offset
+     * @param length
+     * @return
+     */
+    private String uncompress(byte[] buf, int offset, int length) {
+
+        InputStream is = null;
+        GZIPInputStream gzin = null;
+        InputStreamReader isr = null;
+        BufferedReader br = null;
+        StringBuilder sb = new StringBuilder();
+        try {
+            is = new ByteArrayInputStream(buf, offset, length);
+            gzin = new GZIPInputStream(is);
+            isr = new InputStreamReader(gzin, this.charset());
+            br = new BufferedReader(isr);
+            char[] buffer = new char[4096];
+            int readlen = -1;
+            while ((readlen = br.read(buffer, 0, 4096)) != -1) {
+                sb.append(buffer, 0, readlen);
+            }
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+        finally {
+            try {
+                br.close();
+            }
+            catch (Exception e1) {
+                // ignore
+            }
+            try {
+                isr.close();
+            }
+            catch (Exception e1) {
+                // ignore
+            }
+            try {
+                gzin.close();
+            }
+            catch (Exception e1) {
+                // ignore
+            }
+            try {
+                is.close();
+            }
+            catch (Exception e1) {
+                // ignore
+            }
+        }
+        return sb.toString();
     }
 
 }

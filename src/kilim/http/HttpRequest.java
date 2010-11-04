@@ -52,6 +52,7 @@ public class HttpRequest extends HttpMsg {
     public int queryStringRange;
     public int[] valueRanges;
 
+
     public HttpRequest() {
         this.keys = new String[5];
         this.valueRanges = new int[5];
@@ -236,7 +237,7 @@ public class HttpRequest extends HttpMsg {
         ExposedBaos headerStream = new ExposedBaos();
         this.writeHeader(headerStream);
         ByteBuffer bb = headerStream.toByteBuffer();
-        System.out.println(new String(bb.array()));
+        // System.out.println(new String(bb.array()));
         endpoint.write(bb);
         if (this.bodyStream != null && this.bodyStream.size() > 0) {
             bb = this.bodyStream.toByteBuffer();
@@ -256,7 +257,7 @@ public class HttpRequest extends HttpMsg {
 
 
     public void readHeader(EndPoint endpoint) throws Pausable, IOException {
-        this.buffer = ByteBuffer.allocate(1024*1024);
+        this.buffer = ByteBuffer.allocate(1024 * 1024);
         int headerLength = 0;
         int n;
         do {
@@ -307,5 +308,5 @@ public class HttpRequest extends HttpMsg {
         this.values[this.nFields] = value;
         this.nFields++;
     }
-    
+
 }

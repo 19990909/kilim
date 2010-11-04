@@ -105,12 +105,12 @@ public class NioSelectorScheduler extends Scheduler {
     }
 
 
-    public EndPoint connect(InetSocketAddress addr, Class<? extends SessionTask> sockTaskClass) throws IOException {
-        ConnectTask t = new ConnectTask(addr, this, sockTaskClass);
+    public EndPoint connect(InetSocketAddress addr) throws Pausable, IOException {
+        ConnectTask t = new ConnectTask(addr, this);
         t.setScheduler(this);
         t.preferredResumeThread = this.bossThread;
         t.start();
-        return t.endpoint;
+        return (EndPoint) t.join().result;
     }
 
 
@@ -147,7 +147,7 @@ public class NioSelectorScheduler extends Scheduler {
     }
 
 
-    private SelectorThread nextReactor() {
+    public SelectorThread nextReactor() {
         SelectorThread reactor;
         if (this.workers.length > 0) {
             reactor = this.workers[this.sets.incrementAndGet() % this.workers.length];
@@ -370,29 +370,20 @@ public class NioSelectorScheduler extends Scheduler {
         }
     }
 
-    public static class ConnectTask extends SessionTask {
-        Class<? extends SessionTask> sessionClass;
+    public static class ConnectTask extends Task {
         SocketChannel sc;
-        NioSelectorScheduler selScheduler;
         InetSocketAddress remoteAddr;
-        SessionTask task;
+        EndPoint endpoint;
 
 
-        public ConnectTask(InetSocketAddress remoteAddr, NioSelectorScheduler selScheduler,
-                Class<? extends SessionTask> sessionClass) throws IOException {
+        public ConnectTask(InetSocketAddress remoteAddr, NioSelectorScheduler selScheduler) throws IOException {
             this.remoteAddr = remoteAddr;
-            this.sessionClass = sessionClass;
             this.sc = SocketChannel.open();
-            this.selScheduler = selScheduler;
             this.sc.socket().setReuseAddress(true);
             this.sc.configureBlocking(false);
             try {
-                SelectorThread reactor = this.selScheduler.nextReactor();
-                this.task = this.sessionClass.newInstance();
-                this.task.setScheduler(this.selScheduler);
-                this.task.preferredResumeThread = reactor;
-                final EndPoint ep = new EndPoint(reactor.registrationMbx, this.sc);
-                this.task.setEndPoint(ep);
+                SelectorThread reactor = selScheduler.nextReactor();
+                this.endpoint = new EndPoint(reactor.registrationMbx, this.sc);
             }
             catch (Exception e) {
                 throw new RuntimeException("Connect to " + remoteAddr + " fail", e);
@@ -408,16 +399,13 @@ public class NioSelectorScheduler extends Scheduler {
 
         @Override
         public void execute() throws Pausable, Exception {
-            if (this.sc.connect(this.remoteAddr)) {
-                this.task.start();
-            }
-            else {
-                this.task.endpoint.pauseUntilConnectable();
+            if (!this.sc.connect(this.remoteAddr)) {
+                this.endpoint.pauseUntilConnectable();
                 if (!this.sc.finishConnect()) {
                     throw new IOException("Finish connect to " + this.remoteAddr + " fail");
                 }
-                this.task.start();
             }
+            exit(this.endpoint);
         }
     }
 
