@@ -28,28 +28,41 @@ import kilim.nio.NioSelectorScheduler;
  * A very rudimentary HTTP client
  */
 public class HttpClient {
-    public static String KEEP_ALIVE_TIME = "115";
+    private static final String KEEP_ALIVE = "keep-alive";
     public static final String POST_CONTENT_TYPE = "application/x-www-form-urlencoded";
     public static String USER_AGENT = "Kilim HttpClient";
     public static String CHARSET = "GB2312";
     public static final String GET_METHOD = "GET";
     public static final String POST_METHOD = "POST";
+    public static final int DEFAULT_POOL_SIZE = 5;
 
     public NioSelectorScheduler nio;
 
-    private final int poolSize = 5;
+    private int poolSize = DEFAULT_POOL_SIZE;
 
     private final ConcurrentHashMap<String/* host:port */, BlockingQueue<EndPoint>> endpointCache =
             new ConcurrentHashMap<String, BlockingQueue<EndPoint>>();
 
 
     public HttpClient() throws IOException {
-        this.nio = new NioSelectorScheduler();
+        this(new NioSelectorScheduler(), DEFAULT_POOL_SIZE);
     }
 
 
     public HttpClient(NioSelectorScheduler scheduler) throws IOException {
+        this(scheduler, DEFAULT_POOL_SIZE);
+    }
+
+
+    public HttpClient(NioSelectorScheduler scheduler, int poolSize) throws IOException {
+        if (scheduler == null) {
+            throw new NullPointerException("null scheduler");
+        }
+        if (poolSize <= 0) {
+            throw new IllegalArgumentException("Illegal pool size,it must great than zero");
+        }
         this.nio = scheduler;
+        this.poolSize = poolSize;
     }
 
 
@@ -76,7 +89,7 @@ public class HttpClient {
         request.uriPath = url.getPath();
         request.addField("Host", url.getHost());
         request.addField("User-Agent", USER_AGENT);
-        request.addField("Connection", "keep-alive");
+        request.addField("Connection", KEEP_ALIVE);
 
         request.writeTo(endpoint);
         HttpResponse httpResponse = new HttpResponse();
@@ -116,7 +129,8 @@ public class HttpClient {
         final String body = this.buildQueryString(params, CHARSET);
         return this.post(url, body);
     }
-    
+
+
     public HttpResponse post(String url, Map<String, CharSequence> params) throws Pausable, Exception {
         final String body = this.buildQueryString(params, CHARSET);
         return this.post(new URL(url), body);
@@ -133,6 +147,7 @@ public class HttpClient {
         request.addField("Host", url.getHost());
         request.addField("User-Agent", USER_AGENT);
         request.addField("Content-Type", POST_CONTENT_TYPE);
+        request.addField("Connection", KEEP_ALIVE);
 
         request.getOutputStream().write(body.getBytes(CHARSET));
 
@@ -182,7 +197,5 @@ public class HttpClient {
             ep.close();
         }
     }
-
-    static final int TIMEOUT = 10000;
 
 }
