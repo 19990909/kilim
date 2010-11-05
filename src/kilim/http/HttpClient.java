@@ -6,6 +6,7 @@
 
 package kilim.http;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.InetSocketAddress;
@@ -82,26 +83,30 @@ public class HttpClient {
 
 
     private HttpResponse get(final URL url) throws Pausable, Exception {
-        EndPoint endpoint = this.getEndPoint(url);
-        HttpRequest request = new HttpRequest();
-        request.method = GET_METHOD;
+        int tryCount = 0;
+        while (tryCount++ < 3) {
+            EndPoint endpoint = this.getEndPoint(url);
+            HttpRequest request = new HttpRequest();
+            request.method = GET_METHOD;
 
-        request.uriPath = url.getPath();
-        request.addField("Host", url.getHost());
-        request.addField("User-Agent", USER_AGENT);
-        request.addField("Connection", KEEP_ALIVE);
+            request.uriPath = url.getPath();
+            request.addField("Host", url.getHost());
+            request.addField("User-Agent", USER_AGENT);
+            request.addField("Connection", KEEP_ALIVE);
 
-        request.writeTo(endpoint);
-        HttpResponse httpResponse = new HttpResponse();
-        httpResponse.readFrom(endpoint);
-        final String respConn = httpResponse.getHeader("Connection");
-        if (respConn != null && respConn.equalsIgnoreCase("close")) {
-            endpoint.close();
+            request.writeTo(endpoint);
+            HttpResponse httpResponse = new HttpResponse();
+            try {
+                httpResponse.readFrom(endpoint);
+            }
+            catch (EOFException e) {
+                // If channel has been closed,try again
+                continue;
+            }
+            this.releaseEndPoint(url, endpoint, httpResponse);
+            return httpResponse;
         }
-        else {
-            this.releaseEndPoint(url, endpoint);
-        }
-        return httpResponse;
+        throw new IOException("Get failed for " + url);
     }
 
 
@@ -145,21 +150,38 @@ public class HttpClient {
 
     private HttpResponse post(URL url, final String body) throws Pausable, Exception, IOException,
             UnsupportedEncodingException {
-        EndPoint endpoint = this.getEndPoint(url);
-        HttpRequest request = new HttpRequest();
-        request.method = POST_METHOD;
+        int tryCount = 0;
+        while (tryCount++ < 3) {
 
-        request.uriPath = url.getPath();
-        request.addField("Host", url.getHost());
-        request.addField("User-Agent", USER_AGENT);
-        request.addField("Content-Type", POST_CONTENT_TYPE);
-        request.addField("Connection", KEEP_ALIVE);
+            EndPoint endpoint = this.getEndPoint(url);
+            HttpRequest request = new HttpRequest();
+            request.method = POST_METHOD;
 
-        request.getOutputStream().write(body.getBytes(CHARSET));
+            request.uriPath = url.getPath();
+            request.addField("Host", url.getHost());
+            request.addField("User-Agent", USER_AGENT);
+            request.addField("Content-Type", POST_CONTENT_TYPE);
+            request.addField("Connection", KEEP_ALIVE);
 
-        request.writeTo(endpoint);
-        HttpResponse httpResponse = new HttpResponse();
-        httpResponse.readFrom(endpoint);
+            request.getOutputStream().write(body.getBytes(CHARSET));
+
+            request.writeTo(endpoint);
+            HttpResponse httpResponse = new HttpResponse();
+            try {
+                httpResponse.readFrom(endpoint);
+            }
+            catch (EOFException e) {
+                // If channel has been closed,try again
+                continue;
+            }
+            this.releaseEndPoint(url, endpoint, httpResponse);
+            return httpResponse;
+        }
+        throw new IOException("Post failed for " + url);
+    }
+
+
+    private void releaseEndPoint(URL url, EndPoint endpoint, HttpResponse httpResponse) throws Exception {
         final String respConn = httpResponse.getHeader("Connection");
         if (respConn != null && respConn.equalsIgnoreCase("close")) {
             endpoint.close();
@@ -167,7 +189,6 @@ public class HttpClient {
         else {
             this.releaseEndPoint(url, endpoint);
         }
-        return httpResponse;
     }
 
 
