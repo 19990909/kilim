@@ -28,7 +28,7 @@ import kilim.nio.NioSelectorScheduler;
  * A very rudimentary HTTP client
  */
 public class HttpClient {
-    private static final String KEEP_ALIVE = "keep-alive";
+    private static final String KEEP_ALIVE = "Keep-Alive";
     public static final String POST_CONTENT_TYPE = "application/x-www-form-urlencoded";
     public static String USER_AGENT = "Kilim HttpClient";
     public static String CHARSET = "GB2312";
@@ -94,7 +94,13 @@ public class HttpClient {
         request.writeTo(endpoint);
         HttpResponse httpResponse = new HttpResponse();
         httpResponse.readFrom(endpoint);
-        this.releaseEndPoint(url, endpoint);
+        final String respConn = httpResponse.getHeader("Connection");
+        if (respConn != null && respConn.equalsIgnoreCase("close")) {
+            endpoint.close();
+        }
+        else {
+            this.releaseEndPoint(url, endpoint);
+        }
         return httpResponse;
     }
 
@@ -154,7 +160,13 @@ public class HttpClient {
         request.writeTo(endpoint);
         HttpResponse httpResponse = new HttpResponse();
         httpResponse.readFrom(endpoint);
-        this.releaseEndPoint(url, endpoint);
+        final String respConn = httpResponse.getHeader("Connection");
+        if (respConn != null && respConn.equalsIgnoreCase("close")) {
+            endpoint.close();
+        }
+        else {
+            this.releaseEndPoint(url, endpoint);
+        }
         return httpResponse;
     }
 
