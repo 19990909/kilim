@@ -28,7 +28,7 @@ import kilim.nio.NioSelectorScheduler;
  * A very rudimentary HTTP client
  */
 public class HttpClient {
-    private static final String KEEP_ALIVE = "Keep-Alive";
+    private static final String KEEP_ALIVE = "keep-alive";
     public static final String POST_CONTENT_TYPE = "application/x-www-form-urlencoded";
     public static String USER_AGENT = "Kilim HttpClient";
     public static String CHARSET = "GB2312";
